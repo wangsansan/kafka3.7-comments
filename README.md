@@ -291,3 +291,5 @@ Apache Kafka is interested in building the community; we would welcome any thoug
 
 To contribute follow the instructions here:
  * https://kafka.apache.org/contributing.html 
+ 
+### 增加一些自己代码理解的注释
