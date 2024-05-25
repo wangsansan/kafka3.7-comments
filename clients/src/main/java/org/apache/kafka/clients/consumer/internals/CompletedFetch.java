@@ -57,6 +57,7 @@ import java.util.Set;
  */
 public class CompletedFetch {
 
+    // 以 partition 作为 维度，CompletedFetch 和 partition 是一一对应的
     final TopicPartition partition;
     final FetchResponseData.PartitionData partitionData;
     final short requestVersion;
@@ -64,6 +65,7 @@ public class CompletedFetch {
     private final Logger log;
     private final SubscriptionState subscriptions;
     private final BufferSupplier decompressionBufferSupplier;
+    // 每个 completedFetch 中都放了一批 recordBatch
     private final Iterator<? extends RecordBatch> batches;
     private final Set<Long> abortedProducerIds;
     private final PriorityQueue<FetchResponseData.AbortedTransaction> abortedTransactions;
@@ -71,8 +73,12 @@ public class CompletedFetch {
 
     private int recordsRead;
     private int bytesRead;
+    // 当前正在处理的 recordBatch
     private RecordBatch currentBatch;
+    // 当前正在处理的 record
     private Record lastRecord;
+
+    // currentBatch 对应的 records
     private CloseableIterator<Record> records;
     private Exception cachedRecordException = null;
     private boolean corruptLastRecord = false;
@@ -183,9 +189,15 @@ public class CompletedFetch {
 
     private Record nextFetchedRecord(FetchConfig fetchConfig) {
         while (true) {
+            /**
+             * 这老哥总喜欢while true，然后里面通过if else 的逻辑来判断到底是执行第一步还是第二步
+             * 特么的，无形中增加了代码的理解难度
+             */
+            // 如果当前 records 里的数据为空了，就 获取 下一个batch，设置records
             if (records == null || !records.hasNext()) {
                 maybeCloseRecordStream();
 
+                // 如果当前 completedFetch 对应的 batches 被消费完了
                 if (!batches.hasNext()) {
                     // Message format v2 preserves the last offset in a batch even if the last record is removed
                     // through compaction. By using the next offset computed from the last offset in the batch,
@@ -198,6 +210,7 @@ public class CompletedFetch {
                     return null;
                 }
 
+                // 重置 currentBatch
                 currentBatch = batches.next();
                 lastEpoch = maybeLeaderEpoch(currentBatch.partitionLeaderEpoch());
                 maybeEnsureValid(fetchConfig, currentBatch);
@@ -219,15 +232,17 @@ public class CompletedFetch {
                         continue;
                     }
                 }
-
+                // 拿到 currentBatch 对应的 records
                 records = currentBatch.streamingIterator(decompressionBufferSupplier);
             } else {
+                // 获取到 records 里的第一个record，如果不是 controlBatch就返回
                 Record record = records.next();
                 // skip any records out of range
                 if (record.offset() >= nextFetchOffset) {
                     // we only do validation when the message should not be skipped.
                     maybeEnsureValid(fetchConfig, record);
 
+                    // 这个判断能不能写到外面么？要是 controlBatch 里面有很多 record，那不是白白走了很多while循环么？
                     // control records are not returned to the user
                     if (!currentBatch.isControlBatch()) {
                         return record;
@@ -280,6 +295,7 @@ public class CompletedFetch {
 
                 Optional<Integer> leaderEpoch = maybeLeaderEpoch(currentBatch.partitionLeaderEpoch());
                 TimestampType timestampType = currentBatch.timestampType();
+                // 对拿到的数据进行反序列化
                 ConsumerRecord<K, V> record = parseRecord(deserializers, partition, leaderEpoch, timestampType, lastRecord);
                 records.add(record);
                 recordsRead++;

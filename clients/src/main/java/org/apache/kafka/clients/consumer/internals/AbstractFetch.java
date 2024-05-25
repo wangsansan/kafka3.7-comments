@@ -67,6 +67,7 @@ public abstract class AbstractFetch implements Closeable {
     protected final FetchConfig fetchConfig;
     protected final Time time;
     protected final FetchMetricsManager metricsManager;
+    // fetch 到的数据，存到 fetchBuffer 里， 把kafka2.1里的 completedFetches 封装到 FetchBuffer 这个数据结构里了
     protected final FetchBuffer fetchBuffer;
     protected final BufferSupplier decompressionBufferSupplier;
     protected final Set<Integer> nodesWithPendingFetchRequests;
@@ -212,6 +213,7 @@ public abstract class AbstractFetch implements Closeable {
                         metricAggregator,
                         fetchOffset,
                         requestVersion);
+                // fetch 到的数据都存到 fetchBuffer 里，当需要消费时，先从 fetchBuffer 里拿数据，拿不到再进行真的 fetchRequest 调用
                 fetchBuffer.add(completedFetch);
             }
 

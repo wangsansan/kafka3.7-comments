@@ -102,7 +102,9 @@ public class Fetcher<K, V> extends AbstractFetch {
      * @return number of fetches sent
      */
     public synchronized int sendFetches() {
+        // 设置 fetchRequests
         final Map<Node, FetchSessionHandler.FetchRequestData> fetchRequests = prepareFetchRequests();
+
         sendFetchesInternal(
                 fetchRequests,
                 (fetchTarget, data, clientResponse) -> {

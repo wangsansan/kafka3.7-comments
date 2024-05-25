@@ -96,12 +96,21 @@ public class FetchCollector<K, V> {
         int recordsRemaining = fetchConfig.maxPollRecords;
 
         try {
+            /**
+             * 此处逻辑和 kafka2.1 还是比较接近的。
+             * 1. 先从 上次请求的数据缓存（fetchBuffer）里拿出第一个 completedFetch，然后设置成 nextInLineFetch
+             * 2. 当 nextInLineFetch 有值以后，会进行后面的操作，貌似 kafka3.7 支持了暂停
+             *  2.1 如果是暂停状态：
+             *  2.2 非暂停
+             */
             while (recordsRemaining > 0) {
                 final CompletedFetch nextInLineFetch = fetchBuffer.nextInLineFetch();
 
                 if (nextInLineFetch == null || nextInLineFetch.isConsumed()) {
+                    // 从 fetchBuffer 里拿第一个不为空的 completedFetch，也就是上次 fetch 到的数据
                     final CompletedFetch completedFetch = fetchBuffer.peek();
 
+                    // 说明 fetchBuffer 是empty的
                     if (completedFetch == null)
                         break;
 
@@ -223,6 +232,7 @@ public class FetchCollector<K, V> {
                 log.debug("Ignoring fetched records for partition {} since it no longer has valid position", tp);
                 return null;
             } else if (error == Errors.NONE) {
+                // 对 completedFetch 进行 initialize 操作
                 final CompletedFetch ret = handleInitializeSuccess(completedFetch);
                 recordMetrics = ret == null;
                 return ret;
@@ -242,6 +252,11 @@ public class FetchCollector<K, V> {
         }
     }
 
+    /**
+     * 1. 校验 completedFetch 数据
+     * 2. 设置 subscriptions 数据，给之后的 fetch request 使用
+     * 3. 设置 initialized = true
+     */
     private CompletedFetch handleInitializeSuccess(final CompletedFetch completedFetch) {
         final TopicPartition tp = completedFetch.partition;
         final long fetchOffset = completedFetch.nextFetchOffset();
@@ -260,6 +275,7 @@ public class FetchCollector<K, V> {
                 FetchResponse.recordsSize(partition), tp, position);
         Iterator<? extends RecordBatch> batches = FetchResponse.recordsOrFail(partition).batches().iterator();
 
+        // 这个卫语句写的真的难受，kafka的开发者编码风格居然是这种先判断异常情况，然后处理，写一大坨，反而把正常情况逻辑放在后面
         if (!batches.hasNext() && FetchResponse.recordsSize(partition) > 0) {
             if (completedFetch.requestVersion < 3) {
                 // Implement the pre KIP-74 behavior of throwing a RecordTooLargeException.
@@ -278,16 +294,19 @@ public class FetchCollector<K, V> {
             }
         }
 
+        // 设置 subscriptions，给下次 fetch Request 设置参数使用
         if (partition.highWatermark() >= 0) {
             log.trace("Updating high watermark for partition {} to {}", tp, partition.highWatermark());
             subscriptions.updateHighWatermark(tp, partition.highWatermark());
         }
 
+        // 设置 subscriptions，给下次 fetch Request 设置参数使用
         if (partition.logStartOffset() >= 0) {
             log.trace("Updating log start offset for partition {} to {}", tp, partition.logStartOffset());
             subscriptions.updateLogStartOffset(tp, partition.logStartOffset());
         }
 
+        // 设置 subscriptions，给下次 fetch Request 设置参数使用
         if (partition.lastStableOffset() >= 0) {
             log.trace("Updating last stable offset for partition {} to {}", tp, partition.lastStableOffset());
             subscriptions.updateLastStableOffset(tp, partition.lastStableOffset());
@@ -302,6 +321,7 @@ public class FetchCollector<K, V> {
             });
         }
 
+        // 所以初始化功能，仅仅是设置了一个参数 initialized = true
         completedFetch.setInitialized();
         return completedFetch;
     }

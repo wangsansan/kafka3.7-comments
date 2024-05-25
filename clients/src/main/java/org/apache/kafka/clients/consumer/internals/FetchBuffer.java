@@ -137,6 +137,7 @@ public class FetchBuffer implements AutoCloseable {
     CompletedFetch peek() {
         try {
             lock.lock();
+            // ConcurrentLinkedQueue 这个数据结构有点厉害了。peek操作是获取链表头部第一个不为空的元素（只读取不移除）
             return completedFetches.peek();
         } finally {
             lock.unlock();
