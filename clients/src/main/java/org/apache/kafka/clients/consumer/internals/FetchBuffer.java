@@ -55,6 +55,7 @@ public class FetchBuffer implements AutoCloseable {
 
     private final AtomicBoolean wokenup = new AtomicBoolean(false);
 
+    // 当前正在处理的 CompletedFetch
     private CompletedFetch nextInLineFetch;
 
     public FetchBuffer(final LogContext logContext) {

@@ -105,12 +105,15 @@ public class FetchCollector<K, V> {
              */
             while (recordsRemaining > 0) {
                 final CompletedFetch nextInLineFetch = fetchBuffer.nextInLineFetch();
-
+                /**
+                 * 每次poll，默认需要500条record， 先从nextInLineFetch（当前正在处理的completedFetch）中获取 record
+                 * 如果 nextInLineFetch 为null，或者里面的 records 被拿完了，就切换下一个 completedFetch
+                 */
                 if (nextInLineFetch == null || nextInLineFetch.isConsumed()) {
                     // 从 fetchBuffer 里拿第一个不为空的 completedFetch，也就是上次 fetch 到的数据
                     final CompletedFetch completedFetch = fetchBuffer.peek();
 
-                    // 说明 fetchBuffer 是empty的
+                    // 说明 fetchBuffer 是empty的，或者当前fetchBuffer里的 completedFetch 里的record 都被拿完了
                     if (completedFetch == null)
                         break;
 

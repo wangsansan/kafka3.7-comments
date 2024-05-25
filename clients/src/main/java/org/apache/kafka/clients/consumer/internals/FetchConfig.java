@@ -32,9 +32,9 @@ public class FetchConfig {
     public final int minBytes;
     public final int maxBytes;
     public final int maxWaitMs;
-    // 这个变量是给真正的 Fetch request 使用的
+    // 这个变量是给真正的 Fetch request 使用的: 每个 partition 获取数据大小，默认1MB
     public final int fetchSize;
-    // 这个变量很诡异，是标志每次 Consumer 消费消息的数量
+    // 这个变量很诡异，是标志每次 Consumer poll消息的数量：默认500
     public final int maxPollRecords;
     public final boolean checkCrcs;
     public final String clientRackId;
