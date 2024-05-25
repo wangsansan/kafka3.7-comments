@@ -99,6 +99,9 @@ public class FetchResponse extends AbstractResponse {
     }
 
     public LinkedHashMap<TopicPartition, FetchResponseData.PartitionData> responseData(Map<Uuid, String> topicNames, short version) {
+        /**
+         * 双重检查锁
+         */
         if (responseData == null) {
             synchronized (this) {
                 if (responseData == null) {
