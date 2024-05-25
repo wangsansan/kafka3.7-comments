@@ -140,6 +140,7 @@ public class FetchCollector<K, V> {
                     pausedCompletedFetches.add(nextInLineFetch);
                     fetchBuffer.setNextInLineFetch(null);
                 } else {
+                    // recordsRemaining 控制，从 fetchBuffer 里拿出多少数据来
                     final Fetch<K, V> nextFetch = fetchRecords(nextInLineFetch, recordsRemaining);
                     recordsRemaining -= nextFetch.numRecords();
                     fetch.add(nextFetch);

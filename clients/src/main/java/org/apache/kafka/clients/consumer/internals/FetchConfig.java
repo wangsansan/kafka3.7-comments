@@ -32,7 +32,9 @@ public class FetchConfig {
     public final int minBytes;
     public final int maxBytes;
     public final int maxWaitMs;
+    // 这个变量是给真正的 Fetch request 使用的
     public final int fetchSize;
+    // 这个变量很诡异，是标志每次 Consumer 消费消息的数量
     public final int maxPollRecords;
     public final boolean checkCrcs;
     public final String clientRackId;
