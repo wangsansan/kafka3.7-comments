@@ -141,9 +141,10 @@ public class FetchCollector<K, V> {
                      * rebalance会触发 partition 的状态为暂停
                      * 此处，如果暂停了就会把消息放到 pausedCompletedFetches 里
                      * 然后又放到 fetchBuffer 里，这样可以等partition状态不为 暂停 的时候再 poll 出来消费
+                     * 这样不会乱序么？不会乱序！！！因为在 fetchBuffer 里，同一个 partition 只会存在一个 completedFetch，所以放到后面没有影响。因为Kafka只保证同一个partition里的数据不会乱序
                      */
                     // when the partition is paused we add the records back to the completedFetches queue instead of draining
-                    // them so that they can be returned on a subsequent poll if the partition is resumed at that time
+                    // them so that they can be returned on a subsequent（随后的） poll if the partition is resumed at that time
                     log.debug("Skipping fetching records for assigned partition {} because it is paused", nextInLineFetch.partition);
                     pausedCompletedFetches.add(nextInLineFetch);
                     fetchBuffer.setNextInLineFetch(null);
