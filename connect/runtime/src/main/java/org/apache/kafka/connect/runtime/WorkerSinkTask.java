@@ -378,6 +378,7 @@ class WorkerSinkTask extends WorkerTask {
     /**
      * Starts an offset commit by flushing outstanding messages from the task and then starting
      * the write commit.
+     * 自动提交是异步的
      */
     private void doCommit(Map<TopicPartition, OffsetAndMetadata> offsets, boolean closing, int seqno) {
         if (isCancelled()) {

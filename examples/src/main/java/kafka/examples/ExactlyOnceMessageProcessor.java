@@ -150,6 +150,7 @@ public class ExactlyOnceMessageProcessor extends Thread implements ConsumerRebal
                     // invalid or no offset found without auto.reset.policy
                     Utils.printOut("Invalid or no offset found, using latest");
                     consumer.seekToEnd(emptyList());
+                    // 非正常情况 commit
                     consumer.commitSync();
                 } catch (KafkaException e) {
                     // abort the transaction and try to continue

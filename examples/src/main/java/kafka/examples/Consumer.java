@@ -102,6 +102,7 @@ public class Consumer extends Thread implements ConsumerRebalanceListener {
                     // invalid or no offset found without auto.reset.policy
                     Utils.printOut("Invalid or no offset found, using latest");
                     consumer.seekToEnd(e.partitions());
+                    // 非正常情况commit
                     consumer.commitSync();
                 } catch (KafkaException e) {
                     // log the exception and try to continue
