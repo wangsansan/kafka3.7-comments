@@ -59,6 +59,7 @@ public class CompletedFetch {
 
     // 以 partition 作为 维度，CompletedFetch 和 partition 是一一对应的
     final TopicPartition partition;
+    // 当前 fetch 里的真实数据，通过 batches 这个迭代器来迭代
     final FetchResponseData.PartitionData partitionData;
     final short requestVersion;
 
@@ -82,6 +83,7 @@ public class CompletedFetch {
     private CloseableIterator<Record> records;
     private Exception cachedRecordException = null;
     private boolean corruptLastRecord = false;
+    // 下一个要读取的 offset，也就是下一条 record 的 offset
     private long nextFetchOffset;
     private Optional<Integer> lastEpoch;
     private boolean isConsumed = false;
@@ -300,6 +302,7 @@ public class CompletedFetch {
                 records.add(record);
                 recordsRead++;
                 bytesRead += lastRecord.sizeInBytes();
+                // 下一个要读取的offset位置
                 nextFetchOffset = lastRecord.offset() + 1;
                 // In some cases, the deserialization may have thrown an exception and the retry may succeed,
                 // we allow user to move forward in this case.

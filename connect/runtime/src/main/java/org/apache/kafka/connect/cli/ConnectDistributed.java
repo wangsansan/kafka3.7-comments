@@ -111,6 +111,10 @@ public class ConnectDistributed extends AbstractConnectCli<DistributedConfig> {
         return new DistributedConfig(workerProps);
     }
 
+    /**
+     * 这特娘的才是梦开始的地方
+     * @param args
+     */
     public static void main(String[] args) {
         ConnectDistributed connectDistributed = new ConnectDistributed(args);
         connectDistributed.run();

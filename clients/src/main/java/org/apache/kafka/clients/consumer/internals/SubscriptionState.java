@@ -92,6 +92,9 @@ public class SubscriptionState {
      * which require a group rebalance. */
     private Set<String> groupSubscription;
 
+    /**
+     * 每个 partition 保存一个 TopicPartitionState，PartitionStates 这个数据结构可以理解为一个HashMap
+     */
     /* the partitions that are currently assigned, note that the order of partition matters (see FetchBuilder for more details) */
     private final PartitionStates<TopicPartitionState> assignment;
 
@@ -1120,6 +1123,7 @@ public class SubscriptionState {
      * the batch from a FetchResponse. It also includes the leader epoch at the time the batch was consumed.
      */
     public static class FetchPosition {
+        // 该字段用来标志每次发起 fetch request时，从哪个offset获取数据
         public final long offset;
         final Optional<Integer> offsetEpoch;
         final Metadata.LeaderAndEpoch currentLeader;

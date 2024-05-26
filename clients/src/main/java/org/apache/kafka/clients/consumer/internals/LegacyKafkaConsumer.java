@@ -643,6 +643,7 @@ public class LegacyKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
     }
 
     private int sendFetches() {
+        // 有可能发生了 rebalance，所以此处需要check下元数据有没有变更，这样才可以根据元数据发起 fetch request
         offsetFetcher.validatePositionsOnMetadataChange();
         return fetcher.sendFetches();
     }
@@ -662,6 +663,10 @@ public class LegacyKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
         long pollTimeout = coordinator == null ? timer.remainingMs() :
                 Math.min(coordinator.timeToNextPoll(timer.currentTimeMs()), timer.remainingMs());
 
+        /**
+         * 只要缓存（fetchBuffer）里还有数据，就不会发起真正的 fetchRequest，
+         * 而如果发生了 rebalance 事件，会把 当前 fetch 数据加到 fetchBuffer 队尾
+         */
         // if data is available already, return it immediately
         final Fetch<K, V> fetch = fetcher.collectFetch();
         if (!fetch.isEmpty()) {

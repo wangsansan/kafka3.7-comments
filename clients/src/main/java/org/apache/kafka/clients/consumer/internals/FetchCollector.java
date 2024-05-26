@@ -137,6 +137,11 @@ public class FetchCollector<K, V> {
 
                     fetchBuffer.poll();
                 } else if (subscriptions.isPaused(nextInLineFetch.partition)) {
+                    /**
+                     * rebalance会触发 partition 的状态为暂停
+                     * 此处，如果暂停了就会把消息放到 pausedCompletedFetches 里
+                     * 然后又放到 fetchBuffer 里，这样可以等partition状态不为 暂停 的时候再 poll 出来消费
+                     */
                     // when the partition is paused we add the records back to the completedFetches queue instead of draining
                     // them so that they can be returned on a subsequent poll if the partition is resumed at that time
                     log.debug("Skipping fetching records for assigned partition {} because it is paused", nextInLineFetch.partition);
@@ -187,13 +192,20 @@ public class FetchCollector<K, V> {
 
                 boolean positionAdvanced = false;
 
+                /**
+                 * 也就是说其实在 fetchRecord 的时候就已经把本地的 offset 进行了更新了，
+                 * 如果消费失败了，就重新消费这条数据，而且也不会去远程再拉取一遍数据
+                 * 但是如果消费成功了，需要把 offset 同步给远程的专门用来保存 offset 的 topic，防止 rebalance：这段代码逻辑还没找到
+                 */
                 if (nextInLineFetch.nextFetchOffset() > position.offset) {
+                    // fetchPosition设置
                     SubscriptionState.FetchPosition nextPosition = new SubscriptionState.FetchPosition(
                             nextInLineFetch.nextFetchOffset(),
                             nextInLineFetch.lastEpoch(),
                             position.currentLeader);
                     log.trace("Updating fetch position from {} to {} for partition {} and returning {} records from `poll()`",
                             position, nextPosition, tp, partRecords.size());
+                    // 此处更新 partition 的 offset
                     subscriptions.position(tp, nextPosition);
                     positionAdvanced = true;
                 }

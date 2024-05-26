@@ -1910,6 +1910,7 @@ public class DistributedHerder extends AbstractHerder implements Runnable {
         }
     }
 
+    // 启动工作线程：梦开始的地方
     private void startWork() {
         // Start assigned connectors and tasks
         List<Callable<Void>> callables = new ArrayList<>();

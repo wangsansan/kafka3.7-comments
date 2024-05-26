@@ -410,6 +410,7 @@ public abstract class AbstractFetch implements Closeable {
         Map<String, Uuid> topicIds = metadata.topicIds();
 
         for (TopicPartition partition : fetchablePartitions()) {
+            // 读取当前 partition 已经消费完的 offset
             SubscriptionState.FetchPosition position = subscriptions.position(partition);
 
             if (position == null)
@@ -423,6 +424,7 @@ public abstract class AbstractFetch implements Closeable {
                 continue;
             }
 
+            // 下面这行代码注释的意思是，Kafka3.7 已经开始支持读非 leader replica了么
             // Use the preferred read replica if set, otherwise the partition's leader
             Node node = selectReadReplica(partition, leaderOpt.get(), currentTimeMs);
 

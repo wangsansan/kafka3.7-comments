@@ -136,10 +136,11 @@ public abstract class AbstractConnectCli<T extends WorkerConfig> {
                 config, ConnectorClientConfigOverridePolicy.class);
 
         Herder herder = createHerder(config, workerId, plugins, connectorClientConfigOverridePolicy, restServer, restClient);
-
+        // 创建连接，并在连接里面创建 线程，创建 Consumer
         final Connect connect = new Connect(herder, restServer);
         log.info("Kafka Connect worker initialization took {}ms", time.hiResClockMs() - initStart);
         try {
+            // 启动线程
             connect.start();
         } catch (Exception e) {
             log.error("Failed to start Connect", e);

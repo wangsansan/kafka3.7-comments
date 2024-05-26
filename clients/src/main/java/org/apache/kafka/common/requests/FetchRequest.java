@@ -60,6 +60,7 @@ public class FetchRequest extends AbstractRequest {
 
     public static final class PartitionData {
         public final Uuid topicId;
+        // fetch request 的位置，发起 fetch 请求时进行设置
         public final long fetchOffset;
         public final long logStartOffset;
         public final int maxBytes;
