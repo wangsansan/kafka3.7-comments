@@ -152,6 +152,11 @@ public class FetchCollector<K, V> {
                     // recordsRemaining 控制，从 fetchBuffer 里拿出多少数据来
                     final Fetch<K, V> nextFetch = fetchRecords(nextInLineFetch, recordsRemaining);
                     recordsRemaining -= nextFetch.numRecords();
+                    /**
+                     * 这么个看似简单的api：add
+                     * 里面其实做的事情是根据 partition 进行 record 合并，把同一个 partition 的records 放到一起
+                     * 方便后面转化成 consumerRecords 这个数据结构
+                     */
                     fetch.add(nextFetch);
                 }
             }

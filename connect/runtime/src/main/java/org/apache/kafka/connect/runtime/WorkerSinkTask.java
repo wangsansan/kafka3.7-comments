@@ -87,9 +87,13 @@ class WorkerSinkTask extends WorkerTask {
     private final boolean isTopicTrackingEnabled;
     private final Consumer<byte[], byte[]> consumer;
     private WorkerSinkTaskContext context;
+    // 这个是临时变量：保存的数据很快set给其他参数，然后clear本身
     private final List<SinkRecord> messageBatch;
+    // 最近一次提交成功的offset，offset 异步提交回调时会更新该参数；如果 commit offset 失败，就把currentOffsets = lastCommittedOffsets
     private final Map<TopicPartition, OffsetAndMetadata> lastCommittedOffsets;
+    // 最近一次拉取消息成功的offset，每次 poll record结束会更新该参数；commit offset，就是commit 的该变量
     private final Map<TopicPartition, OffsetAndMetadata> currentOffsets;
+    // 这个是临时变量：保存的数据很快set给其他参数，然后clear本身
     private final Map<TopicPartition, OffsetAndMetadata> origOffsets;
     private RuntimeException rebalanceException;
     private long nextCommit;
@@ -342,6 +346,9 @@ class WorkerSinkTask extends WorkerTask {
         }
 
         log.trace("{} Polling consumer with timeout {} ms", this, timeoutMs);
+        /**
+         * 此处就是调用 Consumer.poll的主体逻辑
+         */
         ConsumerRecords<byte[], byte[]> msgs = pollConsumer(timeoutMs);
         assert messageBatch.isEmpty() || msgs.isEmpty();
         log.trace("{} Polling returned {} messages", this, msgs.count());
@@ -513,6 +520,9 @@ class WorkerSinkTask extends WorkerTask {
 
             SinkRecord transRecord = convertAndTransformRecord(msg);
 
+            /**
+             * 记录下一次需要进行 fetch 的 offset
+             */
             origOffsets.put(
                     new TopicPartition(msg.topic(), msg.partition()),
                     new OffsetAndMetadata(msg.offset() + 1)
@@ -705,6 +715,11 @@ class WorkerSinkTask extends WorkerTask {
     }
 
     private class HandleRebalance implements ConsumerRebalanceListener {
+        /**
+         * rebalance 之后，该 Consumer 新增的可消费的 partition
+         * @param partitions The list of partitions that are now assigned to the consumer (previously owned partitions will
+         *                   NOT be included, i.e. this list will only include newly added partitions)
+         */
         @Override
         public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
             log.debug("{} Partitions assigned {}", WorkerSinkTask.this, partitions);
@@ -757,11 +772,25 @@ class WorkerSinkTask extends WorkerTask {
             }
         }
 
+        /**
+         * rebalance之后，之前是该Consumer消费，但是现在不再该Consumer需要消费的 partition，
+         * 应该是这些 partition 不再需要被消费了（不知道是怎么回事）
+         * @param partitions The list of partitions that were assigned to the consumer and now need to be revoked (may not
+         *                   include all currently assigned partitions, i.e. there may still be some partitions left)
+         */
         @Override
         public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
             onPartitionsRemoved(partitions, false);
         }
 
+        /**
+         * rebalance之后，之前是该Consumer消费，但是现在已经被分配给其他Consumer消费的partition
+         * 按照括号里的意思，当然入参其实是之前该Consumer消费的全部partition，看了下目前该方法的调用方，确实都是把 全部partition(subscriptions.assignedPartitions())给传进来了
+         * @param partitions The list of partitions that were assigned to the consumer and now have been reassigned
+         *                   to other consumers. With the current protocol this will always include all of the consumer's
+         *                   previously assigned partitions, but this may change in future protocols (ie there would still
+         *                   be some partitions left)
+         */
         @Override
         public void onPartitionsLost(Collection<TopicPartition> partitions) {
             onPartitionsRemoved(partitions, true);
@@ -778,6 +807,9 @@ class WorkerSinkTask extends WorkerTask {
                 return;
 
             try {
+                /**
+                 * 清除所有 partition 消费记录
+                 */
                 closePartitions(partitions, lost);
                 sinkTaskMetricsGroup.clearOffsets(partitions);
             } catch (RuntimeException e) {
