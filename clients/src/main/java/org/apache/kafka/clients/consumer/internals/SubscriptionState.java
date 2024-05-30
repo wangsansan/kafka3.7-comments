@@ -1124,6 +1124,9 @@ public class SubscriptionState {
      */
     public static class FetchPosition {
         // 该字段用来标志每次发起 fetch request时，从哪个offset获取数据
+        /**
+         * 这是拉消息的offset，真正消费完成的offset，其实是在 WorkerSinkTask#lastCommittedOffsets 里保存
+         */
         public final long offset;
         final Optional<Integer> offsetEpoch;
         final Metadata.LeaderAndEpoch currentLeader;
