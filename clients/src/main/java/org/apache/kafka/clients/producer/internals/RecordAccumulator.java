@@ -298,7 +298,9 @@ public class RecordAccumulator {
         // abortIncompleteBatches().
         appendsInProgress.incrementAndGet();
         ByteBuffer buffer = null;
-        if (headers == null) headers = Record.EMPTY_HEADERS;
+        if (headers == null) {
+            headers = Record.EMPTY_HEADERS;
+        }
         try {
             // Loop to retry in case we encounter partitioner's race conditions.
             while (true) {
@@ -308,6 +310,9 @@ public class RecordAccumulator {
                 // deque lock.
                 final BuiltInPartitioner.StickyPartitionInfo partitionInfo;
                 final int effectivePartition;
+                /**
+                 * 如果 partition 为空，从 topic 里随机一个 partition
+                 */
                 if (partition == RecordMetadata.UNKNOWN_PARTITION) {
                     partitionInfo = topicInfo.builtInPartitioner.peekCurrentPartitionInfo(cluster);
                     effectivePartition = partitionInfo.partition();
@@ -325,7 +330,7 @@ public class RecordAccumulator {
                     // After taking the lock, validate that the partition hasn't changed and retry.
                     if (partitionChanged(topic, topicInfo, partitionInfo, dq, nowMs, cluster))
                         continue;
-
+                    // 将消息append到batch里的实际执行方法
                     RecordAppendResult appendResult = tryAppend(timestamp, key, value, headers, callbacks, dq, nowMs);
                     if (appendResult != null) {
                         // If queue has incomplete batches we disable switch (see comments in updatePartitionInfo).
@@ -335,14 +340,17 @@ public class RecordAccumulator {
                     }
                 }
 
+                // 执行到此处，说明last batch 没有足够的空间 append 消息
                 // we don't have an in-progress record batch try to allocate a new batch
                 if (abortOnNewBatch) {
                     // Return a result that will cause another call to append.
                     return new RecordAppendResult(null, false, false, true, 0);
                 }
 
+                // 只有第一次执行到此处，才会进行buffer的初始化
                 if (buffer == null) {
                     byte maxUsableMagic = apiVersions.maxUsableProduceMagic();
+                    // 新的 size 取的是 batchSize 和 消息size的max值，因为有可能是消息体太大了
                     int size = Math.max(this.batchSize, AbstractRecords.estimateSizeInBytesUpperBound(maxUsableMagic, compression, key, value, headers));
                     log.trace("Allocating a new {} byte message buffer for topic {} partition {} with remaining timeout {}ms", size, topic, partition, maxTimeToBlock);
                     // This call may block if we exhausted buffer space.
@@ -399,7 +407,7 @@ public class RecordAccumulator {
                                               ByteBuffer buffer,
                                               long nowMs) {
         assert partition != RecordMetadata.UNKNOWN_PARTITION;
-
+        // 防止其他线程可能创建了新的batch，所以需要再 tryAppend 一次，不过就像下面的注释写的
         RecordAppendResult appendResult = tryAppend(timestamp, key, value, headers, callbacks, dq, nowMs);
         if (appendResult != null) {
             // Somebody else found us a batch, return the one we waited for! Hopefully this doesn't happen often...
@@ -412,6 +420,7 @@ public class RecordAccumulator {
                 callbacks, nowMs));
 
         dq.addLast(batch);
+        // 消息等待发送，也就是 等待完成
         incomplete.add(batch);
 
         return new RecordAppendResult(future, dq.size() > 1 || batch.isFull(), true, false, batch.estimatedSizeInBytes());
@@ -446,14 +455,18 @@ public class RecordAccumulator {
                                          Callback callback, Deque<ProducerBatch> deque, long nowMs) {
         if (closed)
             throw new KafkaException("Producer closed while send in progress");
+        // 获取最后一个 batch
         ProducerBatch last = deque.peekLast();
         if (last != null) {
             int initialBytes = last.estimatedSizeInBytes();
+            // 把最后这个 batch 的 ProduceRequestResult 封装到了 当前消息的 FutureRecordMetadata 中
             FutureRecordMetadata future = last.tryAppend(timestamp, key, value, headers, callback, nowMs);
             if (future == null) {
+                // 最后一个 batch 不能再append消息了，就关闭，等待发送，同时跳转到 return null
                 last.closeForRecordAppends();
             } else {
                 int appendedBytes = last.estimatedSizeInBytes() - initialBytes;
+                // 此处又把 FutureRecordMetadata 封装到了 recordAppendResult 里了，所以，消息发送方能够感知消息是否发送成功
                 return new RecordAppendResult(future, deque.size() > 1 || last.isFull(), false, false, appendedBytes);
             }
         }

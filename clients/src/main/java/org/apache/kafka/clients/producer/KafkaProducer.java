@@ -430,6 +430,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             // As per Kafka producer configuration documentation batch.size may be set to 0 to explicitly disable
             // batching which in practice actually means using a batch size of 1.
             int batchSize = Math.max(1, config.getInt(ProducerConfig.BATCH_SIZE_CONFIG));
+            // accumulator 累加器是用来对消息进行聚合，把消息聚合成 recordBatch
             this.accumulator = new RecordAccumulator(logContext,
                     batchSize,
                     this.compressionType,
@@ -459,8 +460,10 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                 this.metadata.bootstrap(addresses);
             }
             this.errors = this.metrics.sensor("errors");
+            // sender是一个 runnable 接口实现，用来发送消息
             this.sender = newSender(logContext, kafkaClient, this.metadata);
             String ioThreadName = NETWORK_THREAD_PREFIX + " | " + clientId;
+            // 开启IO线程，同时是守护线程。IO线程主要是为了执行 sender里的逻辑
             this.ioThread = new KafkaThread(ioThreadName, this.sender, true);
             this.ioThread.start();
             config.logUnused();
@@ -992,6 +995,10 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         try {
             throwIfProducerClosed();
             // first make sure the metadata for the topic is available
+            /**
+             * 第一步，确保消息的 topic metadata 存在：
+             *  先读内存里的缓存，如果不存在，会 wakeup Sender线程去集群fetch metadata
+             */
             long nowMs = time.milliseconds();
             ClusterAndWaitTime clusterAndWaitTime;
             try {
@@ -1004,6 +1011,10 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             nowMs += clusterAndWaitTime.waitedOnMetadataMs;
             long remainingWaitMs = Math.max(0, maxBlockTimeMs - clusterAndWaitTime.waitedOnMetadataMs);
             Cluster cluster = clusterAndWaitTime.cluster;
+            /**
+             * 第二步，对要发送的消息 producerRecord 进行序列化
+             * 因为网络传输，数据发送一定要转化成二级制
+             */
             byte[] serializedKey;
             try {
                 serializedKey = keySerializer.serialize(record.topic(), record.headers(), record.key());
@@ -1024,6 +1035,9 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             // Try to calculate partition, but note that after this call it can be RecordMetadata.UNKNOWN_PARTITION,
             // which means that the RecordAccumulator would pick a partition using built-in logic (which may
             // take into account broker load, the amount of data produced to each partition, etc.).
+            /**
+             * 第三步，计算要发送消息的发往的 partition
+             */
             int partition = partition(record, serializedKey, serializedValue, cluster);
 
             setReadOnly(record.headers());
@@ -1039,10 +1053,20 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
 
             // Append the record to the accumulator.  Note, that the actual partition may be
             // calculated there and can be accessed via appendCallbacks.topicPartition.
+            /**
+             * 第四步，把 producerRecord 通过 accumulator 放到 recordBatch里
+             * append到最后一个batch里，或者新开一个batch
+             */
             RecordAccumulator.RecordAppendResult result = accumulator.append(record.topic(), partition, timestamp, serializedKey,
                     serializedValue, headers, appendCallbacks, remainingWaitMs, abortOnNewBatch, nowMs, cluster);
             assert appendCallbacks.getPartition() != RecordMetadata.UNKNOWN_PARTITION;
 
+            /**
+             * 第五步，检查是否需要重新 append producerRecord
+             * 也就是当前 partition 如果last batch append消息失败了，
+             * 会选择一个新的 partition（随机的，而不是轮询的），然后尝试对该partition 的 last batch 进行append
+             * 这么做的好处还是为了增加吞吐量
+             */
             if (result.abortForNewBatch) {
                 int prevPartition = partition;
                 onNewBatch(record.topic(), cluster, prevPartition);
@@ -1050,6 +1074,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                 if (log.isTraceEnabled()) {
                     log.trace("Retrying append due to new batch creation for topic {} partition {}. The old partition was {}", record.topic(), partition, prevPartition);
                 }
+                // 注意此时 abortOnNewBatch 取值为false，如果last batch再append 失败，那么会创建一个新的 batch来append 消息
                 result = accumulator.append(record.topic(), partition, timestamp, serializedKey,
                     serializedValue, headers, appendCallbacks, remainingWaitMs, false, nowMs, cluster);
             }
@@ -1062,11 +1087,14 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             if (transactionManager != null) {
                 transactionManager.maybeAddPartition(appendCallbacks.topicPartition());
             }
-
+            /**
+             * 第六步，唤醒 sender 线程，进行消息发送
+             */
             if (result.batchIsFull || result.newBatchCreated) {
                 log.trace("Waking up the sender since topic {} partition {} is either full or getting a new batch", record.topic(), appendCallbacks.getPartition());
                 this.sender.wakeup();
             }
+            // 返回一个Future，业务方可以用来判断 producerRecord 是否真的发送成功了
             return result.future;
             // handling exceptions and record the errors;
             // for API exceptions return them in the future,
@@ -1144,6 +1172,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             }
             metadata.add(topic, nowMs + elapsed);
             int version = metadata.requestUpdateForTopic(topic);
+            // 唤醒 sender 线程，去集群查询 metadata
             sender.wakeup();
             try {
                 metadata.awaitUpdate(version, remainingWaitMs);
@@ -1421,6 +1450,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             return record.partition();
 
         if (partitioner != null) {
+            // 默认情况下，使用了粘性分配器，也就是同一个topic总是发往同一个partition，减少连接创建数，增加吞吐量
             int customPartition = partitioner.partition(
                 record.topic(), record.key(), serializedKey, record.value(), serializedValue, cluster);
             if (customPartition < 0) {
