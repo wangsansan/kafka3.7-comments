@@ -1094,7 +1094,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
                 log.trace("Waking up the sender since topic {} partition {} is either full or getting a new batch", record.topic(), appendCallbacks.getPartition());
                 this.sender.wakeup();
             }
-            // 返回一个Future，业务方可以用来判断 producerRecord 是否真的发送成功了
+            // 返回一个Future，此时的Future是FutureRecordMetadata，业务方可以用来判断 producerRecord 是否真的发送成功了
             return result.future;
             // handling exceptions and record the errors;
             // for API exceptions return them in the future,
@@ -1111,6 +1111,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             if (transactionManager != null) {
                 transactionManager.maybeTransitionToErrorState(e);
             }
+            // 调用了不存在的api时，也会返回结果，而不是抛出异常
             return new FutureFailure(e);
         } catch (InterruptedException e) {
             this.errors.record();
