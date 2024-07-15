@@ -345,6 +345,7 @@ public class Sender implements Runnable {
         }
 
         long currentTimeMs = time.milliseconds();
+        // 实际执行消息发送的方法
         long pollTimeout = sendProducerData(currentTimeMs);
         client.poll(pollTimeout, currentTimeMs);
     }
@@ -365,6 +366,7 @@ public class Sender implements Runnable {
 
     private long sendProducerData(long now) {
         // get the list of partitions with data ready to send
+        // 注意这个ReadyCheckResult里的 readyNodes，是指对应的node，当前有消息可以发送
         RecordAccumulator.ReadyCheckResult result = this.accumulator.ready(metadata, now);
 
         // if there are any partitions whose leaders are not known yet, force metadata update
@@ -447,6 +449,7 @@ public class Sender implements Runnable {
             // otherwise the select time will be the time difference between now and the metadata expiry time;
             pollTimeout = 0;
         }
+        // 发送batches
         sendProduceRequests(batches, now);
         return pollTimeout;
     }
@@ -823,8 +826,7 @@ public class Sender implements Runnable {
         ProducerBatch batch,
         RuntimeException topLevelException,
         Function<Integer, RuntimeException> recordExceptions,
-        boolean adjustSequenceNumbers
-    ) {
+        boolean adjustSequenceNumbers) {
         this.sensors.recordErrors(batch.topicPartition.topic(), batch.recordCount);
 
         if (batch.completeExceptionally(topLevelException, recordExceptions)) {
@@ -865,6 +867,8 @@ public class Sender implements Runnable {
 
     /**
      * Create a produce request from the given record batches
+     * 针对每个node（destination）发送可以发送的batches
+     * acks是 topic 维度的，Sender也是 topic 维度的，所以在 KafkaProducer 初始化的时候，进行赋值
      */
     private void sendProduceRequest(long now, int destination, short acks, int timeout, List<ProducerBatch> batches) {
         if (batches.isEmpty())

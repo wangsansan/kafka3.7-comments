@@ -391,6 +391,13 @@ public class Selector implements Selectable, AutoCloseable {
             this.failedSends.add(connectionId);
         } else {
             try {
+                /**
+                 * 提醒 kafkaChannel 发送消息，
+                 *  1. 将需要发送的消息赋值给kafkaChannel的send对象
+                 *  2. 给 selector 上注册写事件
+                 *         写事件注册之后，selector通过调用select方法，
+                 *          可以从 networkClient的inFlightRequests中获取真正需要发送的消息，然后进行发送
+                  */
                 channel.setSend(send);
             } catch (Exception e) {
                 // update the state for consistency, the channel will be discarded after `close`
@@ -474,10 +481,11 @@ public class Selector implements Selectable, AutoCloseable {
                 keysWithBufferedRead.removeAll(readyKeys); //so no channel gets polled twice
                 Set<SelectionKey> toPoll = keysWithBufferedRead;
                 keysWithBufferedRead = new HashSet<>(); //poll() calls will repopulate if needed
+                // 如果有还没处理完的 selectKey，先处理
                 pollSelectionKeys(toPoll, false, endSelect);
             }
 
-            // Poll from channels where the underlying socket has more data
+            // Poll from channels where the underlying（潜在的、基础的、根本的） socket has more data
             pollSelectionKeys(readyKeys, false, endSelect);
             // Clear all selected keys so that they are excluded from the ready count for the next select
             readyKeys.clear();
@@ -590,6 +598,9 @@ public class Selector implements Selectable, AutoCloseable {
 
                 long nowNanos = channelStartTimeNanos != 0 ? channelStartTimeNanos : currentTimeNanos;
                 try {
+                    /**
+                     * selector进行消息发送
+                     */
                     attemptWrite(key, channel, nowNanos);
                 } catch (Exception e) {
                     sendFailed = true;
@@ -1032,6 +1043,7 @@ public class Selector implements Selectable, AutoCloseable {
 
     /**
      * Get the channel associated with selectionKey
+     * 和netty的channel实现方法一样，通过把channel绑定在selectKey上来进行channel和selectKey的关联
      */
     private KafkaChannel channel(SelectionKey key) {
         return (KafkaChannel) key.attachment();

@@ -545,6 +545,7 @@ public class NetworkClient implements KafkaClient {
             log.debug("Sending {} request with header {} and timeout {} to node {}: {}",
                 clientRequest.apiKey(), header, clientRequest.requestTimeoutMs(), destination, request);
         }
+        // 发送对象
         Send send = request.toSend(header);
         InFlightRequest inFlightRequest = new InFlightRequest(
                 clientRequest,
@@ -553,7 +554,9 @@ public class NetworkClient implements KafkaClient {
                 request,
                 send,
                 now);
+        // 加入到 inFlightRequests 中
         this.inFlightRequests.add(inFlightRequest);
+        // 调用selector进行消息发送，实际是把 send 赋值给 kafkaChannel 的send
         selector.send(new NetworkSend(clientRequest.destination(), send));
     }
 

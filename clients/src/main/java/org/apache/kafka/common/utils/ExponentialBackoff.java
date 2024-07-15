@@ -56,7 +56,7 @@ public class ExponentialBackoff {
         double randomFactor = jitter < Double.MIN_NORMAL ? 1.0 :
             ThreadLocalRandom.current().nextDouble(1 - jitter, 1 + jitter);
         long backoffValue = (long) (randomFactor * term);
-        return backoffValue > maxInterval ? maxInterval : backoffValue;
+        return Math.min(backoffValue, maxInterval);
     }
 
     @Override

@@ -636,6 +636,7 @@ public class RecordAccumulator {
     private long batchReady(boolean exhausted, TopicPartition part, Node leader,
                             long waitedTimeMs, boolean backingOff, int backoffAttempts,
                             boolean full, long nextReadyCheckDelayMs, Set<Node> readyNodes) {
+        // readyNodes默认为空，随着循环体被调用，逐渐增加
         if (!readyNodes.contains(leader) && !isMuted(part)) {
             long timeToWaitMs = backingOff ? retryBackoff.backoff(backoffAttempts > 0 ? backoffAttempts - 1 : 0) : lingerMs;
             boolean expired = waitedTimeMs >= timeToWaitMs;
@@ -653,6 +654,7 @@ public class RecordAccumulator {
                 // Note that this results in a conservative estimate since an un-sendable partition may have
                 // a leader that will later be found to have sendable data. However, this is good enough
                 // since we'll just wake up and then sleep again for the remaining time.
+                // nextReadyCheckDelayMs 的默认值是long.maxValue，
                 nextReadyCheckDelayMs = Math.min(timeLeftMs, nextReadyCheckDelayMs);
             }
         }
@@ -691,8 +693,13 @@ public class RecordAccumulator {
         }
 
         int queueSizesIndex = -1;
+        // exhausted：当前等待分配内存的线程数大于1
         boolean exhausted = this.free.queued() > 0;
         for (Map.Entry<Integer, Deque<ProducerBatch>> entry : batches.entrySet()) {
+            /**
+             * 每个 entry 是一个单独的 partition
+             * entry的key是 partition 值，也就是第几个 partition， value是保存的 batch 队列
+             */
             TopicPartition part = new TopicPartition(topic, entry.getKey());
             // Advance queueSizesIndex so that we properly index available
             // partitions.  Do it here so that it's done for all code paths.
@@ -722,6 +729,7 @@ public class RecordAccumulator {
             synchronized (deque) {
                 // Deques are often empty in this path, esp with large partition counts,
                 // so we exit early if we can.
+                // 每个 batch 队列，每次只发第一个 batch
                 ProducerBatch batch = deque.peekFirst();
                 if (batch == null) {
                     continue;
@@ -729,6 +737,10 @@ public class RecordAccumulator {
 
                 waitedTimeMs = batch.waitedTimeMs(nowMs);
                 batch.maybeUpdateLeaderEpoch(leaderAndEpoch.epoch);
+                /**
+                 * backingOff：是否需要进行退避？
+                 * 一般是指失败之后的重试，需要先进行退避策略。
+                 */
                 backingOff = shouldBackoff(batch.hasLeaderChangedForTheOngoingRetry(), batch, waitedTimeMs);
                 backoffAttempts = batch.attempts();
                 dequeSize = deque.size();
@@ -876,6 +888,7 @@ public class RecordAccumulator {
 
     private List<ProducerBatch> drainBatchesForOneNode(Metadata metadata, Node node, int maxSize, long now) {
         int size = 0;
+        // 找出该node上所有的存放的leader partition
         List<PartitionInfo> parts = metadata.fetch().partitionsForNode(node.id());
         List<ProducerBatch> ready = new ArrayList<>();
         if (parts.isEmpty())
@@ -906,6 +919,7 @@ public class RecordAccumulator {
             final ProducerBatch batch;
             synchronized (deque) {
                 // invariant: !isMuted(tp,now) && deque != null
+                // 每个partition 每次只发送其 batch 队列的第一个batch
                 ProducerBatch first = deque.peekFirst();
                 if (first == null)
                     continue;
@@ -985,7 +999,7 @@ public class RecordAccumulator {
      * @param now The current unix time in milliseconds
      * @return A list of {@link ProducerBatch} for each node specified with total size less than the requested maxSize.
      */
-    public Map<Integer, List<ProducerBatch>> drain(Metadata metadata, Set<Node> nodes, int maxSize, long now) {
+    public Map<Integer/*nodeId*/, List<ProducerBatch>> drain(Metadata metadata, Set<Node> nodes, int maxSize, long now) {
         if (nodes.isEmpty())
             return Collections.emptyMap();
 
