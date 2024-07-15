@@ -893,6 +893,7 @@ public class NetworkClient implements KafkaClient {
         // if no response is expected then when the send is completed, return it
         for (NetworkSend send : this.selector.completedSends()) {
             InFlightRequest request = this.inFlightRequests.lastSent(send.destinationId());
+            // expectResponse = acks != 0
             if (!request.expectResponse) {
                 this.inFlightRequests.completeLastSent(send.destinationId());
                 responses.add(request.completed(null, now));
