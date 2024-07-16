@@ -345,8 +345,20 @@ public class Sender implements Runnable {
         }
 
         long currentTimeMs = time.milliseconds();
-        // 实际执行消息发送的方法
+        /**
+         * 1. 组装需要发送的 batches，确定需要发往的 node，
+         * 2. 将batches 放到 inflightBatches 里
+         * 3. 每个node的发送请求封装成一个 clientRequest
+         * 4. 按照消息协议将 clientRequest 转化成 send
+         * 5. 将 send 绑定到 kafkaChannel 的send上，同时通过 kafkaChannel 给底层nioSelector注册写事件
+         */
         long pollTimeout = sendProducerData(currentTimeMs);
+        /**
+         * 1. 响应 nioSelector 上的读写事件
+         * 2. 读事件：之前消息发送成功的ack、更新 metadata 的请求返回数据了
+         * 3. 写事件：将消息发送出去(通过底层的socketChannel.write);
+         * 4. 更新消息producerBatch的状态，执行 producerBatch 的done方法
+         */
         client.poll(pollTimeout, currentTimeMs);
     }
 
@@ -402,7 +414,9 @@ public class Sender implements Runnable {
         }
 
         // create produce requests
-        Map<Integer, List<ProducerBatch>> batches = this.accumulator.drain(metadata, result.readyNodes, this.maxRequestSize, now);
+        // 查找当前可以发送的 batches
+        Map<Integer/*nodeId*/, List<ProducerBatch>> batches = this.accumulator.drain(metadata, result.readyNodes, this.maxRequestSize, now);
+        // 将当前可发送batches放到 inflightBatches 里面
         addToInflightBatches(batches);
         if (guaranteeMessageOrder) {
             // Mute all the partitions drained
@@ -627,6 +641,9 @@ public class Sender implements Runnable {
                             p.errorMessage(),
                             p.currentLeader());
                     ProducerBatch batch = batches.get(tp);
+                    /**
+                     * 调用对应的batch 的done方法，标志消息发送完成
+                     */
                     completeBatch(batch, partResp, correlationId, now, partitionsWithUpdatedLeaderInfo);
                 }));
 
@@ -646,6 +663,9 @@ public class Sender implements Runnable {
 
                 this.sensors.recordLatency(response.destination(), response.requestLatencyMs());
             } else {
+                /**
+                 * acks等于0，也会接收到response，此处进行兜底
+                 */
                 // this is the acks = 0 case, just complete all requests
                 for (ProducerBatch batch : batches.values()) {
                     completeBatch(batch, new ProduceResponse.PartitionResponse(Errors.NONE), correlationId, now, null);
@@ -918,6 +938,10 @@ public class Sender implements Runnable {
                         .setTimeoutMs(timeout)
                         .setTransactionalId(transactionalId)
                         .setTopicData(tpd));
+        /**
+         * 注意此处给发送加了一个 callback，这个 callback 的逻辑会 producerBatch 的done方法
+         * 在 poll 方法之后会执行该回调方法
+         */
         RequestCompletionHandler callback = response -> handleProduceResponse(response, recordsByPartition, time.milliseconds());
 
         String nodeId = Integer.toString(destination);

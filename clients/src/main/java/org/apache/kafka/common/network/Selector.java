@@ -579,6 +579,9 @@ public class Selector implements Selectable, AutoCloseable {
 
                 //if channel is ready and has bytes to read from socket or buffer, and has no
                 //previous completed receive then read from it
+                /**
+                 * 有可能之前发送的消息的ack回来了，需要记录一下
+                 */
                 if (channel.ready() && (key.isReadable() || channel.hasBytesBuffered()) && !hasCompletedReceive(channel)
                         && !explicitlyMutedChannels.contains(channel)) {
                     attemptRead(channel);
@@ -681,7 +684,9 @@ public class Selector implements Selectable, AutoCloseable {
 
     private void attemptRead(KafkaChannel channel) throws IOException {
         String nodeId = channel.id();
-
+        /**
+         * 从socketChannel读取数据，并把读取到的数据传输到kafkaChannel的 receive
+          */
         long bytesReceived = channel.read();
         if (bytesReceived != 0) {
             long currentTimeMs = time.milliseconds();
@@ -690,6 +695,7 @@ public class Selector implements Selectable, AutoCloseable {
 
             NetworkReceive receive = channel.maybeCompleteReceive();
             if (receive != null) {
+                // 将读取到的数据暂存一下（消息ack信息），用来后续判断之前发送的消息是否成功
                 addToCompletedReceives(channel, receive, currentTimeMs);
             }
         }

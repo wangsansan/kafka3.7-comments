@@ -585,6 +585,9 @@ public class NetworkClient implements KafkaClient {
         long metadataTimeout = metadataUpdater.maybeUpdate(now);
         long telemetryTimeout = telemetrySender != null ? telemetrySender.maybeUpdate(now) : Integer.MAX_VALUE;
         try {
+            /**
+             * 处理读写事件：包括发送消息、消息ack等
+             */
             this.selector.poll(Utils.min(timeout, metadataTimeout, telemetryTimeout, defaultRequestTimeoutMs));
         } catch (IOException e) {
             log.error("Unexpected error during I/O", e);
@@ -600,6 +603,9 @@ public class NetworkClient implements KafkaClient {
         handleInitiateApiVersionRequests(updatedNow);
         handleTimedOutConnections(responses, updatedNow);
         handleTimedOutRequests(responses, updatedNow);
+        /**
+         * 调用request的回调方法，主要就是消息的ack，执行发送消息producerBatch 的done方法
+         */
         completeResponses(responses);
 
         return responses;
@@ -888,6 +894,7 @@ public class NetworkClient implements KafkaClient {
      *
      * @param responses The list of responses to update
      * @param now The current time
+     * 给 ack设置成0的发送request，设置response
      */
     private void handleCompletedSends(List<ClientResponse> responses, long now) {
         // if no response is expected then when the send is completed, return it
@@ -928,6 +935,9 @@ public class NetworkClient implements KafkaClient {
     private void handleCompletedReceives(List<ClientResponse> responses, long now) {
         for (NetworkReceive receive : this.selector.completedReceives()) {
             String source = receive.source();
+            /**
+             * 通过此处逻辑可以发现，服务端在发送消息ack回来时，严格按照了客户端发送消息的顺序
+             */
             InFlightRequest req = inFlightRequests.completeNext(source);
 
             AbstractResponse response = parseResponse(receive.payload(), req.header);
@@ -939,6 +949,9 @@ public class NetworkClient implements KafkaClient {
                     req.header.apiKey(), req.destination, req.header, response);
             }
 
+            /**
+             * 限流
+             */
             // If the received response includes a throttle delay, throttle the connection.
             maybeThrottle(response, req.header.apiVersion(), req.destination, now);
             if (req.isInternalRequest && response instanceof MetadataResponse)
@@ -949,8 +962,10 @@ public class NetworkClient implements KafkaClient {
                 telemetrySender.handleResponse((GetTelemetrySubscriptionsResponse) response);
             else if (req.isInternalRequest && response instanceof PushTelemetryResponse)
                 telemetrySender.handleResponse((PushTelemetryResponse) response);
-            else
+            else {
+                // 走到此处，我们认为接收到的是消息发送的ack返回了，那么对应的request更新为 completed
                 responses.add(req.completed(response, now));
+            }
         }
     }
 
