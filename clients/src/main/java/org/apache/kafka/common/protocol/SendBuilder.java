@@ -171,6 +171,7 @@ public class SendBuilder implements Writable {
     }
 
     public Send build() {
+        // 此处将消息封装成一个 ByteBufferSend 放到了sends里面
         flushPendingSend();
 
         if (sends.size() == 1) {
