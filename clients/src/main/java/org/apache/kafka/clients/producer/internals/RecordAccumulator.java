@@ -638,7 +638,11 @@ public class RecordAccumulator {
                             boolean full, long nextReadyCheckDelayMs, Set<Node> readyNodes) {
         // readyNodes默认为空，随着循环体被调用，逐渐增加
         if (!readyNodes.contains(leader) && !isMuted(part)) {
+            /**
+             * 如果是重试消息，就等到退避策略设定的时间，否则就等待lingerMs，但是lingerMs默认是0 毫秒
+             */
             long timeToWaitMs = backingOff ? retryBackoff.backoff(backoffAttempts > 0 ? backoffAttempts - 1 : 0) : lingerMs;
+            // 因为lingerMs默认是0毫秒，所以此处 expired 多数情况下也是true
             boolean expired = waitedTimeMs >= timeToWaitMs;
             boolean transactionCompleting = transactionManager != null && transactionManager.isCompleting();
             boolean sendable = full
@@ -693,7 +697,10 @@ public class RecordAccumulator {
         }
 
         int queueSizesIndex = -1;
-        // exhausted：当前等待分配内存的线程数大于1
+        /**
+         * exhausted：当前等待分配内存的线程数大于1，是用来判断client的buffer空间是否还有
+         * 当 free.queued() > 0,代表buffer空间不足，存在线程等待其他线程释放buffer空间
+          */
         boolean exhausted = this.free.queued() > 0;
         for (Map.Entry<Integer, Deque<ProducerBatch>> entry : batches.entrySet()) {
             /**
