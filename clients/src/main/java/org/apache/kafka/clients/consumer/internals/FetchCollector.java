@@ -89,6 +89,9 @@ public class FetchCollector<K, V> {
      * @throws OffsetOutOfRangeException If there is OffsetOutOfRange error in fetchResponse and
      *         the defaultResetPolicy is NONE
      * @throws TopicAuthorizationException If there is TopicAuthorization error in fetchResponse.
+     *
+     * FetchCollector里的 fetchBuffer 是个队列，保存着很多 fetch，每个 fetch 对应着不同的 partition，
+     * 所以可以从每个 fetch 上读取到自己归属的 partition， 而每个 partition，同一时间，fetchBuffer 里只会保存一个 fetch
      */
     public Fetch<K, V> collectFetch(final FetchBuffer fetchBuffer) {
         final Fetch<K, V> fetch = Fetch.empty();
@@ -102,23 +105,33 @@ public class FetchCollector<K, V> {
              * 2. 当 nextInLineFetch 有值以后，会进行后面的操作，貌似 kafka3.7 支持了暂停
              *  2.1 如果是暂停状态：
              *  2.2 非暂停
+             *
+             *  正在被消费的 fetch 存在 nextInLineFetch 上
+             *  等待被消费的 fetch 存在 fetchBuffer 里
              */
             while (recordsRemaining > 0) {
+                // 1. 先获取正在消费的 fetch
                 final CompletedFetch nextInLineFetch = fetchBuffer.nextInLineFetch();
                 /**
                  * 每次poll，默认需要500条record， 先从nextInLineFetch（当前正在处理的completedFetch）中获取 record
                  * 如果 nextInLineFetch 为null，或者里面的 records 被拿完了，就切换下一个 completedFetch
                  */
                 if (nextInLineFetch == null || nextInLineFetch.isConsumed()) {
-                    // 从 fetchBuffer 里拿第一个不为空的 completedFetch，也就是上次 fetch 到的数据
+                    /**
+                     * 如果没有正在消费的fetch，就从 fetchBuffer 里拿出第一个 fetch（需要校验offset）
+                     * 从 fetchBuffer 里拿第一个 completedFetch
+                     * 因为fetch到且放到fetchBuffer的队列里，所以是先进先出的
+                     * 所以peek第一个，就是当前正在消费的 completedFetch
+                      */
                     final CompletedFetch completedFetch = fetchBuffer.peek();
 
-                    // 说明 fetchBuffer 是empty的，或者当前fetchBuffer里的 completedFetch 里的record 都被拿完了
+                    // 说明 fetchBuffer 的队列是空的
                     if (completedFetch == null)
                         break;
 
                     if (!completedFetch.isInitialized()) {
                         try {
+                            // 把下一个 fetch 设置为 nextInLineFetch
                             fetchBuffer.setNextInLineFetch(initialize(completedFetch));
                         } catch (Exception e) {
                             // Remove a completedFetch upon a parse with exception if (1) it contains no completedFetch, and
@@ -134,14 +147,18 @@ public class FetchCollector<K, V> {
                     } else {
                         fetchBuffer.setNextInLineFetch(completedFetch);
                     }
-
+                    /**
+                     * 此处 poll 操作是因为上面再获取下一个fetch时，用的是 peek 操作，fetch并没有出队
+                     * 此处是将该 fetch 出队
+                      */
                     fetchBuffer.poll();
                 } else if (subscriptions.isPaused(nextInLineFetch.partition)) {
                     /**
                      * rebalance会触发 partition 的状态为暂停
                      * 此处，如果暂停了就会把消息放到 pausedCompletedFetches 里
                      * 然后又放到 fetchBuffer 里，这样可以等partition状态不为 暂停 的时候再 poll 出来消费
-                     * 这样不会乱序么？不会乱序！！！因为在 fetchBuffer 里，同一个 partition 只会存在一个 completedFetch，所以放到后面没有影响。因为Kafka只保证同一个partition里的数据不会乱序
+                     * 这样不会乱序么？不会乱序！！！因为在 fetchBuffer 里，
+                     *      同一个 partition 只会存在一个 completedFetch，所以放到后面没有影响。因为Kafka只保证同一个partition里的数据不会乱序
                      */
                     // when the partition is paused we add the records back to the completedFetches queue instead of draining
                     // them so that they can be returned on a subsequent（随后的） poll if the partition is resumed at that time
@@ -156,6 +173,8 @@ public class FetchCollector<K, V> {
                      * 这么个看似简单的api：add
                      * 里面其实做的事情是根据 partition 进行 record 合并，把同一个 partition 的records 放到一起
                      * 方便后面转化成 consumerRecords 这个数据结构
+                     *
+                     * 因为可能当前这一次 collectFetch 操作，其实从好几个 fetch 中拉取了数据，不同的fetch属于不同的partition，所以需要进行按partition分开的操作
                      */
                     fetch.add(nextFetch);
                 }
@@ -166,15 +185,21 @@ public class FetchCollector<K, V> {
         } finally {
             // add any polled completed fetches for paused partitions back to the completed fetches queue to be
             // re-evaluated in the next poll
+            /**
+             * 如果某个 partition 被暂停消费了，那么就把该 partition 对应的 fetch 先放到 fetchBuffer 的队尾。
+             * 1. 可能是用户操作暂停的消费，待会儿如果又启动消费了，就不需要再去拉取了，而是可以直接消费
+             * 2. 可能是rebalance触发导致的 partition 暂停消费，那么等rebalance结束，对于还属于当前Consumer消费的fetch，也可以省去一次fetchData操作
+             */
             fetchBuffer.addAll(pausedCompletedFetches);
         }
 
         return fetch;
     }
 
-    private Fetch<K, V> fetchRecords(final CompletedFetch nextInLineFetch, int maxRecords) {
+    private Fetch<K, V> fetchRecords(final CompletedFetch nextInLineFetch, int maxRecordsNum) {
         final TopicPartition tp = nextInLineFetch.partition;
 
+        // 判断该partition有没有被分配给当前节点进行消费，subscriptions里面保存的就是当前Consumer可消费得partition信息
         if (!subscriptions.isAssigned(tp)) {
             // this can happen when a rebalance happened before fetched records are returned to the consumer's poll call
             log.debug("Not returning fetched records for partition {} since it is no longer assigned", tp);
@@ -188,10 +213,15 @@ public class FetchCollector<K, V> {
             if (position == null)
                 throw new IllegalStateException("Missing position for fetchable partition " + tp);
 
+            /**
+             * 也就是说 nextInLineFetch 这个 fetch 的当前待拉取的offset 和 partition 的拉取 offset 值一样
+             * 也就是说 当前 fetch 就是我们需要拉取 record 的 fetch
+             * nextInLineFetch 的待读取 offset 是否和当前该partition待读取 offset 一致
+             */
             if (nextInLineFetch.nextFetchOffset() == position.offset) {
                 List<ConsumerRecord<K, V>> partRecords = nextInLineFetch.fetchRecords(fetchConfig,
                         deserializers,
-                        maxRecords);
+                        maxRecordsNum);
 
                 log.trace("Returning {} fetched records at offset {} for assigned partition {}",
                         partRecords.size(), position, tp);
@@ -199,9 +229,11 @@ public class FetchCollector<K, V> {
                 boolean positionAdvanced = false;
 
                 /**
-                 * 也就是说其实在 fetchRecord 的时候就已经把本地的 offset 进行了更新了，
+                 * 其实本地相当于有两个offset，一个是消息拉取offset，一个是需要同步到远程的offset
                  * 如果消费失败了，就重新消费这条数据，而且也不会去远程再拉取一遍数据
-                 * 但是如果消费成功了，需要把 offset 同步给远程的专门用来保存 offset 的 topic，防止 rebalance：这段代码逻辑还没找到
+                 *
+                 * 因为上面逻辑从 nextInLineFetch 中 poll 了消息，只要 poll 成功了，哪怕一条，那么此时 该判断也会成立
+                 * 所以当前这个判断，其实就是判断上面从该 fetch 中 poll 消息有没有poll成功，成功了的话就发起一次请求，获取下次需要poll消息的position
                  */
                 if (nextInLineFetch.nextFetchOffset() > position.offset) {
                     // fetchPosition设置
@@ -215,7 +247,9 @@ public class FetchCollector<K, V> {
                     subscriptions.position(tp, nextPosition);
                     positionAdvanced = true;
                 }
-
+                /**
+                 * partitionLag = 高水位-当前消费位置，该指标是衡量消费者对于消息的消费速度的
+                 */
                 Long partitionLag = subscriptions.partitionLag(tp, fetchConfig.isolationLevel);
                 if (partitionLag != null)
                     metricsManager.recordPartitionLag(tp, partitionLag);
@@ -234,6 +268,9 @@ public class FetchCollector<K, V> {
             }
         }
 
+        /**
+         * 此处是兜底逻辑，没有消息可poll，就会走到这里
+         */
         log.trace("Draining fetched records for partition {}", tp);
         nextInLineFetch.drain();
 
@@ -280,11 +317,18 @@ public class FetchCollector<K, V> {
      * 3. 设置 initialized = true
      */
     private CompletedFetch handleInitializeSuccess(final CompletedFetch completedFetch) {
+        /**
+         * fetch里的 nextFetchOffset 是指当前 fetch 的 offset
+         * 此时需要进行校验，判断该 fetch 的 offset 是否和已消费到的 offset 一致
+         */
         final TopicPartition tp = completedFetch.partition;
         final long fetchOffset = completedFetch.nextFetchOffset();
 
         // we are interested in this fetch only if the beginning offset matches the
         // current consumed position
+        /**
+         * 查询当前 partition 已消费offset位置
+         */
         SubscriptionState.FetchPosition position = subscriptions.position(tp);
         if (position == null || position.offset != fetchOffset) {
             log.debug("Discarding stale fetch response for partition {} since its offset {} does not match " +

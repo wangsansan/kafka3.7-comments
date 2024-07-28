@@ -79,11 +79,12 @@ public class CompletedFetch {
     // 当前正在处理的 record
     private Record lastRecord;
 
-    // currentBatch 对应的 records
+    // currentBatch 对应的 records 的迭代器
     private CloseableIterator<Record> records;
     private Exception cachedRecordException = null;
+    // corrupt 的含义是损坏的意思，综合来说，这个变量表示 lastRecord 是否是损坏的
     private boolean corruptLastRecord = false;
-    // 下一个要读取的 offset，也就是下一条 record 的 offset
+    // 下一个要读取的 offset，也就是待拉取 record 的 offset: 默认值是第 0 条record的offset
     private long nextFetchOffset;
     private Optional<Integer> lastEpoch;
     private boolean isConsumed = false;
@@ -189,13 +190,19 @@ public class CompletedFetch {
         }
     }
 
+    /**
+     * 一次请求会获取一个fetch，一个fetch包含多个batch，一个batch包含多个record
+     * fetch -> batches, batch -> records
+     * 所以拉取record的时候，先判断records里有没有，如果没了就切换下一个batch
+     * 如果batch也没了，就说明当前的fetch里没有可供消费的record了，直接return null
+     */
     private Record nextFetchedRecord(FetchConfig fetchConfig) {
         while (true) {
             /**
              * 这老哥总喜欢while true，然后里面通过if else 的逻辑来判断到底是执行第一步还是第二步
              * 特么的，无形中增加了代码的理解难度
+             * 如果当前 records 里的数据为空了，就 获取 下一个batch，设置records
              */
-            // 如果当前 records 里的数据为空了，就 获取 下一个batch，设置records
             if (records == null || !records.hasNext()) {
                 maybeCloseRecordStream();
 
@@ -208,15 +215,27 @@ public class CompletedFetch {
                     // fetching the same batch repeatedly).
                     if (currentBatch != null)
                         nextFetchOffset = currentBatch.nextOffset();
+                    /**
+                     * 也就是当前 fetch 拉取完了，然后需要做一些清理工作
+                     * drain在此处是 消耗，耗尽 的意思，也就是当前 fetch 消耗干净了。方法内部对该 fetch 进行清理
+                     */
                     drain();
                     return null;
                 }
 
-                // 重置 currentBatch
+                /**
+                 * 走到此处只代表当前 batch 里的 records 被拉取完了，需要指定下一个拉取 batch
+                 * 也就是 currentBatch
+                 */
                 currentBatch = batches.next();
                 lastEpoch = maybeLeaderEpoch(currentBatch.partitionLeaderEpoch());
                 maybeEnsureValid(fetchConfig, currentBatch);
 
+                /**
+                 * {@link org.apache.kafka.clients.consumer.ConsumerConfig}
+                 * DEFAULT_ISOLATION_LEVEL，默认是 读非提交 的
+                 * 可以猜测只有事务消息时，isolationLevel 才会被设置为 RC
+                 */
                 if (fetchConfig.isolationLevel == IsolationLevel.READ_COMMITTED && currentBatch.hasProducerId()) {
                     // remove from the aborted transaction queue all aborted transactions which have begun
                     // before the current batch's last offset and add the associated producerIds to the
@@ -234,17 +253,20 @@ public class CompletedFetch {
                         continue;
                     }
                 }
-                // 拿到 currentBatch 对应的 records
+                // 拿到 currentBatch 对应的 records 的迭代器
                 records = currentBatch.streamingIterator(decompressionBufferSupplier);
             } else {
-                // 获取到 records 里的第一个record，如果不是 controlBatch就返回
+                /**
+                 * 获取到 records 里的第一个record，如果不是 controlBatch 就返回
+                 * 高版本的情况下，此处一定不是controlBatch
+                 */
                 Record record = records.next();
                 // skip any records out of range
+                // 此处做 大于等于 的判断，我是想不到可能是什么原因
                 if (record.offset() >= nextFetchOffset) {
                     // we only do validation when the message should not be skipped.
                     maybeEnsureValid(fetchConfig, record);
 
-                    // 这个判断能不能写到外面么？要是 controlBatch 里面有很多 record，那不是白白走了很多while循环么？
                     // control records are not returned to the user
                     if (!currentBatch.isControlBatch()) {
                         return record;
@@ -265,12 +287,12 @@ public class CompletedFetch {
      *
      * @param fetchConfig {@link FetchConfig Configuration} to use
      * @param deserializers {@link Deserializer}s to use to convert the raw bytes to the expected key and value types
-     * @param maxRecords The number of records to return; the number returned may be {@code 0 <= maxRecords}
+     * @param maxRecordsNum The number of records to return; the number returned may be {@code 0 <= maxRecordsNum}
      * @return {@link ConsumerRecord Consumer records}
      */
     <K, V> List<ConsumerRecord<K, V>> fetchRecords(FetchConfig fetchConfig,
                                                    Deserializers<K, V> deserializers,
-                                                   int maxRecords) {
+                                                   int maxRecordsNum) {
         // Error when fetching the next record before deserialization.
         if (corruptLastRecord)
             throw new KafkaException("Received exception when fetching the next record from " + partition
@@ -283,7 +305,7 @@ public class CompletedFetch {
         List<ConsumerRecord<K, V>> records = new ArrayList<>();
 
         try {
-            for (int i = 0; i < maxRecords; i++) {
+            for (int i = 0; i < maxRecordsNum; i++) {
                 // Only move to next record if there was no exception in the last fetch. Otherwise, we should
                 // use the last record to do deserialization again.
                 if (cachedRecordException == null) {

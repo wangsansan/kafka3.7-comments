@@ -135,10 +135,18 @@ public class FetchBuffer implements AutoCloseable {
         }
     }
 
+    /**
+     * 虽然 ConcurrentLinkedQueue 本身是线程安全的
+     * 但是此时 fetchBuffer 期望一次操作即可运行成功，所以又加了自己的lock
+     * @return
+     */
     CompletedFetch peek() {
         try {
             lock.lock();
-            // ConcurrentLinkedQueue 这个数据结构有点厉害了。peek操作是获取链表头部第一个不为空的元素（只读取不移除）
+            /**
+             * ConcurrentLinkedQueue 这个数据结构有点厉害了。
+             * peek操作是获取链表头部第一个元素（只读取不移除）
+              */
             return completedFetches.peek();
         } finally {
             lock.unlock();

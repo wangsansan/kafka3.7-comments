@@ -324,6 +324,10 @@ public abstract class AbstractFetch implements Closeable {
      * @return {@link Set} of {@link TopicPartition topic partitions} for which we should fetch data
      */
     private Set<TopicPartition> fetchablePartitions() {
+        /**
+         * 获取当前 fetchBuffer 里还有缓存数据的 partition，
+         * 后续只针对在fetchBuffer里没有缓存了的，但是又属于该消费者消费的 partition 进行 消息拉取（fetchRequest的调用）
+         */
         // This is the set of partitions we have in our buffer
         Set<TopicPartition> buffered = fetchBuffer.bufferedPartitions();
 
@@ -426,6 +430,10 @@ public abstract class AbstractFetch implements Closeable {
 
             // 下面这行代码注释的意思是，Kafka3.7 已经开始支持读非 leader replica了么
             // Use the preferred read replica if set, otherwise the partition's leader
+            /**
+             * 在初始化 nextInLineFetch 时，可能会更新该 partition 的优先读取 replica，也就是3.7支持读取非leader replica了
+             * 但是我看2.1是直接读取leader，如果leader 不存在，会重新fetch metadata
+             */
             Node node = selectReadReplica(partition, leaderOpt.get(), currentTimeMs);
 
             if (isUnavailable(node)) {
@@ -437,6 +445,9 @@ public abstract class AbstractFetch implements Closeable {
             } else if (nodesWithPendingFetchRequests.contains(node.id())) {
                 log.trace("Skipping fetch for partition {} because previous request to {} has not been processed", partition, node);
             } else {
+                /**
+                 * 由于可能多个 partition 数据从一个node上读取，所以此时会基于node维度处理 fetch Request
+                 */
                 // if there is a leader and no in-flight requests, issue a new fetch
                 FetchSessionHandler.Builder builder = fetchable.computeIfAbsent(node, k -> {
                     FetchSessionHandler fetchSessionHandler = sessionHandlers.computeIfAbsent(node.id(), n -> new FetchSessionHandler(logContext, n));

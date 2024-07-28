@@ -61,8 +61,12 @@ public class ConsumerDelegateCreator {
 
             if (groupProtocol == GroupProtocol.CONSUMER)
                 return new AsyncKafkaConsumer<>(config, keyDeserializer, valueDeserializer);
-            else
+            else {
+                /**
+                 * 默认是这个，"遗留消费者"
+                 */
                 return new LegacyKafkaConsumer<>(config, keyDeserializer, valueDeserializer);
+            }
         } catch (KafkaException e) {
             throw e;
         } catch (Throwable t) {

@@ -17,7 +17,10 @@
 package org.apache.kafka.common;
 
 public enum IsolationLevel {
-    READ_UNCOMMITTED((byte) 0), READ_COMMITTED((byte) 1);
+
+    READ_UNCOMMITTED((byte) 0),
+
+    READ_COMMITTED((byte) 1);
 
     private final byte id;
 

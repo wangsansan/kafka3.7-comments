@@ -585,6 +585,11 @@ public class LegacyKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
         return poll(time.timer(timeoutMs), false);
     }
 
+    /**
+     * 默认消费者执行消费的逻辑
+     * @param timeout
+     * @return
+     */
     @Override
     public ConsumerRecords<K, V> poll(final Duration timeout) {
         return poll(time.timer(timeout), true);

@@ -440,6 +440,7 @@ public class SubscriptionState {
         return this.subscriptionType == SubscriptionType.AUTO_TOPICS || this.subscriptionType == SubscriptionType.AUTO_PATTERN;
     }
 
+    // 设置 partition 的位置
     public synchronized void position(TopicPartition tp, FetchPosition position) {
         assignedState(tp).position(position);
     }
@@ -539,6 +540,7 @@ public class SubscriptionState {
         return assignedState(tp).validPosition();
     }
 
+    // 返回当前 partition 的消费位置
     public synchronized FetchPosition position(TopicPartition tp) {
         return assignedState(tp).position;
     }
@@ -783,7 +785,7 @@ public class SubscriptionState {
         private Long logStartOffset; // the log start offset
         private Long lastStableOffset;
         private boolean paused;  // whether this partition has been paused by the user
-        private boolean pendingRevocation;
+        private boolean pendingRevocation; //等待撤销
         private OffsetResetStrategy resetStrategy;  // the strategy to use if the offset needs resetting
         private Long nextRetryTimeMs;
         private Integer preferredReadReplica;

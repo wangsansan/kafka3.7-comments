@@ -109,11 +109,13 @@ public class Fetcher<K, V> extends AbstractFetch {
                 fetchRequests,
                 (fetchTarget, data, clientResponse) -> {
                     synchronized (Fetcher.this) {
+                        // 接收到数据的回调方法
                         handleFetchSuccess(fetchTarget, data, clientResponse);
                     }
                 },
                 (fetchTarget, data, error) -> {
                     synchronized (Fetcher.this) {
+                        // 出错的回调方法
                         handleFetchFailure(fetchTarget, data, error);
                     }
                 });
