@@ -190,6 +190,9 @@ public abstract class AbstractFetch implements Closeable {
                 }
 
                 long fetchOffset = requestData.fetchOffset;
+                /**
+                 * fetch到的数据就在这里面
+                 */
                 FetchResponseData.PartitionData partitionData = entry.getValue();
 
                 log.debug("Fetch {} at offset {} for partition {} returned fetch data {}",
@@ -467,6 +470,7 @@ public abstract class AbstractFetch implements Closeable {
             }
         }
 
+        // 此处的build操作
         return fetchable.entrySet().stream().collect(Collectors.toMap(Map.Entry::getKey, e -> e.getValue().build()));
     }
 

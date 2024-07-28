@@ -679,6 +679,9 @@ public class LegacyKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
         }
 
         // send any new fetches (won't resend pending fetches)
+        /**
+         * 并没有发生网络IO，只是组装了fetch request，并放到了client的unsent里
+         */
         sendFetches();
 
         // We do not want to be stuck blocking in poll if we are missing some positions
@@ -693,13 +696,23 @@ public class LegacyKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
         log.trace("Polling for fetches with timeout {}", pollTimeout);
 
         Timer pollTimer = time.timer(pollTimeout);
+        /**
+         * 此时才执行fetch request 发送逻辑
+         * 1. trySend
+         *    1.1 将unsent里的数据封装成可send的对象，同步到kafkaChannel的send对象上
+         *    1.2 给kafkaChannel上的java selector注册写事件
+         * 2. poll
+         *    通知KafkaChannel处理写事件（也就是发送网络请求），直到获取到数据才返回（数据放到了fetchBuffer里）
+         */
         client.poll(pollTimer, () -> {
             // since a fetch might be completed by the background thread, we need this poll condition
             // to ensure that we do not block unnecessarily in poll()
             return !fetcher.hasAvailableFetches();
         });
         timer.update(pollTimer.currentTimeMs());
-
+        /**
+         * 再次从fetchBuffer 里获取 record，能走到此处，一定是有数据的
+         */
         return fetcher.collectFetch();
     }
 

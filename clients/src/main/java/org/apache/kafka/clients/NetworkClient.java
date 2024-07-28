@@ -468,8 +468,9 @@ public class NetworkClient implements KafkaClient {
      * @param now the current timestamp
      */
     private boolean canSendRequest(String node, long now) {
-        return connectionStates.isReady(node, now) && selector.isChannelReady(node) &&
-            inFlightRequests.canSendMore(node);
+        return connectionStates.isReady(node, now)
+                && selector.isChannelReady(node)
+                && inFlightRequests.canSendMore(node);
     }
 
     /**
@@ -541,6 +542,9 @@ public class NetworkClient implements KafkaClient {
         }
     }
 
+    /**
+     * 将发送数据绑定到selector上，同时注册写事件
+     */
     private void doSend(ClientRequest clientRequest, boolean isInternalRequest, long now, AbstractRequest request) {
         String destination = clientRequest.destination();
         RequestHeader header = clientRequest.makeHeader(request.version());
@@ -559,7 +563,7 @@ public class NetworkClient implements KafkaClient {
                 now);
         // 加入到 inFlightRequests 中
         this.inFlightRequests.add(inFlightRequest);
-        // 调用selector进行消息发送，实际是把 send 赋值给 kafkaChannel 的send
+        // 调用selector进行消息发送，实际是把 send 赋值给 kafkaChannel 的send, 同时注册写事件
         selector.send(new NetworkSend(clientRequest.destination(), send));
     }
 

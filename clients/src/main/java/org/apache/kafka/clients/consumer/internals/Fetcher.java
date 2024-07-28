@@ -105,6 +105,9 @@ public class Fetcher<K, V> extends AbstractFetch {
         // 设置 fetchRequests
         final Map<Node, FetchSessionHandler.FetchRequestData> fetchRequests = prepareFetchRequests();
 
+        /**
+         * 此时并没有执行真正的发送Request逻辑，而是把Request放到了一个networkClient的unsent里了
+         */
         sendFetchesInternal(
                 fetchRequests,
                 (fetchTarget, data, clientResponse) -> {

@@ -268,11 +268,20 @@ public class ConsumerNetworkClient implements Closeable {
             handlePendingDisconnects();
 
             // send all the requests we can send now
+            /**
+             * 底层还是调用的 kafkaClient -> networkClient -> kafkaChannel
+             * 也就是目前只是把待发送数据同步到了 kafkaChannel的send对象上了
+             */
             long pollDelayMs = trySend(timer.currentTimeMs());
 
             // check whether the poll is still needed by the caller. Note that if the expected completion
             // condition becomes satisfied after the call to shouldBlock() (because of a fired completion
             // handler), the client will be woken up.
+            /**
+             * 当是fetch request进行fetch 消息时，此时的 pollCondition 是必须在fetchBuffer里有数据：
+             *      也就是返回了数据且success回调将数据写入了fetchBuffer里
+             * 只要没数据，就通知client去处理读写事件，而写事件就是真正发送fetch request
+             */
             if (pendingCompletion.isEmpty() && (pollCondition == null || pollCondition.shouldBlock())) {
                 // if there are no requests in flight, do not block longer than the retry backoff
                 long pollTimeout = Math.min(timer.remainingMs(), pollDelayMs);
@@ -326,6 +335,8 @@ public class ConsumerNetworkClient implements Closeable {
      * Poll for network IO in best-effort only trying to transmit the ready-to-send request
      * Do not check any pending requests or metadata errors so that no exception should ever
      * be thrown, also no wakeups be triggered and no interrupted exception either.
+     *
+     * transmit是传输或者发送的意思
      */
     public void transmitSends() {
         Timer timer = time.timer(0);
@@ -499,6 +510,13 @@ public class ConsumerNetworkClient implements Closeable {
         }
     }
 
+    /**
+     * 试图发送，
+     * 1. 把当前可发送的数据从unsent里同步到selector的send里
+     * 2. 注册写事件
+     * @param now
+     * @return
+     */
     // Visible for testing
     long trySend(long now) {
         long pollDelayMs = maxPollTimeoutMs;
