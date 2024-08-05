@@ -198,8 +198,10 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
             JoinGroupRequest.UNKNOWN_GENERATION_ID, JoinGroupRequest.UNKNOWN_MEMBER_ID, rebalanceConfig.groupInstanceId);
         this.throwOnFetchStableOffsetsUnsupported = throwOnFetchStableOffsetsUnsupported;
 
-        if (autoCommitEnabled)
+        if (autoCommitEnabled) {
+            // 设置当前时间为开始时间，autoCommitIntervalMs 为 超时时间
             this.nextAutoCommitTimer = time.timer(autoCommitIntervalMs);
+        }
 
         // select the rebalance protocol such that:
         //   1. only consider protocols that are supported by all the assignors. If there is no common protocols supported
@@ -452,7 +454,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
 
     /**
      * Poll for coordinator events. This ensures that the coordinator is known and that the consumer
-     * has joined the group (if it is using group management). This also handles periodic offset commits
+     * has joined the group (if it is using group management). This also handles periodic(周期性) offset commits
      * if they are enabled.
      * <p>
      * Returns early if the timeout expires or if waiting on rejoin is not required
@@ -467,6 +469,9 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
 
         invokeCompletedOffsetCommitCallbacks();
 
+        /**
+         * 默认值应该是这个
+         */
         if (subscriptions.hasAutoAssignedPartitions()) {
             if (protocol == null) {
                 throw new IllegalStateException("User configured " + ConsumerConfig.PARTITION_ASSIGNMENT_STRATEGY_CONFIG +
@@ -526,6 +531,9 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
             client.pollNoWakeup();
         }
 
+        /**
+         * 设置自动提交commit
+         */
         maybeAutoCommitOffsetsAsync(timer.currentTimeMs());
         return true;
     }
@@ -999,6 +1007,12 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         }
     }
 
+    /**
+     * 执行 commit offset方法
+     * @param offsets
+     * @param callback
+     * @return
+     */
     public RequestFuture<Void> commitOffsetsAsync(final Map<TopicPartition, OffsetAndMetadata> offsets, final OffsetCommitCallback callback) {
         invokeCompletedOffsetCommitCallbacks();
 
@@ -1019,6 +1033,10 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
             // the coordinator).
             future = doCommitOffsetsAsync(offsets, callback);
         } else {
+            /**
+             * 走到此处，代表 offsets 非 empty，且（coordinator为空或者not ready）
+             * 所以此时加个回调方法，当 coordinator 确定了且ready之后执行 doCommitOffsetsAsync
+             */
             // we don't know the current coordinator, so try to find it and then send the commit
             // or fail (we don't want recursive retries which can cause offset commits to arrive
             // out of order). Note that there may be multiple offset commits chained to the same
@@ -1046,10 +1064,22 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         // ensure the commit has a chance to be transmitted (without blocking on its completion).
         // Note that commits are treated as heartbeats by the coordinator, so there is no need to
         // explicitly allow heartbeats through delayed task execution.
+        /**
+         * 上面的 doCommitOffsetsAsync 只会把 request 设置到 consumerNetworkClient 的 unsent 上
+         * 此时调用 pollNoWakeup 执行两件事：
+         * 1. trySend：将unsent上的数据同步到 kafkaClient(networkClient)的send上，并注册写事件
+         * 2. kafkaClient(networkClient).poll：真正执行读写事件，即发送网络请求
+         */
         client.pollNoWakeup();
         return future;
     }
 
+    /**
+     * 发起commit offset request，并且设置回调方法
+     * @param offsets
+     * @param callback
+     * @return
+     */
     private RequestFuture<Void> doCommitOffsetsAsync(final Map<TopicPartition, OffsetAndMetadata> offsets, final OffsetCommitCallback callback) {
         RequestFuture<Void> future = sendOffsetCommitRequest(offsets);
         inFlightAsyncCommits.incrementAndGet();
@@ -1151,7 +1181,12 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
 
     public void maybeAutoCommitOffsetsAsync(long now) {
         if (autoCommitEnabled) {
+            // 重置Timer的当前时间
             nextAutoCommitTimer.update(now);
+            /**
+             * 基于当前时间计算，如果超时了就重置下Timer，同时 commit 一下 offsets
+             * 那么下次触发 commit offsets 是什么时候呢？
+             */
             if (nextAutoCommitTimer.isExpired()) {
                 nextAutoCommitTimer.reset(autoCommitIntervalMs);
                 autoCommitOffsetsAsync();
@@ -1181,6 +1216,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
     }
 
     private RequestFuture<Void> autoCommitOffsetsAsync() {
+        // 1. 获取到已消费的offset，即可进行Commit 的offset
         Map<TopicPartition, OffsetAndMetadata> allConsumedOffsets = subscriptions.allConsumed();
         log.debug("Sending asynchronous auto-commit of offsets {}", allConsumedOffsets);
 

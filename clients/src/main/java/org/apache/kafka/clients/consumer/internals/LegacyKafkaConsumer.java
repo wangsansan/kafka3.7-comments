@@ -609,7 +609,11 @@ public class LegacyKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
 
             do {
                 client.maybeTriggerWakeup();
-
+                /**
+                 * includeMetadataInTimeout 默认为true，所以此处每次消费完消息都会触发执行updateAssignmentMetadataIfNeeded
+                 * 从而进行了offsets 的 auto commit。
+                 * 也就是说并不能保证5s一定commit offsets，而是每次消息消费完，看看距离上次是否超过了5s，超过了就commit offsets
+                 */
                 if (includeMetadataInTimeout) {
                     // try to update assignment metadata BUT do not need to block on the timer for join group
                     updateAssignmentMetadataIfNeeded(timer, false);
@@ -653,6 +657,9 @@ public class LegacyKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
         return fetcher.sendFetches();
     }
 
+    /**
+     * coordinator.poll 方法会触发 auto commit offsets
+     */
     boolean updateAssignmentMetadataIfNeeded(final Timer timer, final boolean waitForJoinGroup) {
         if (coordinator != null && !coordinator.poll(timer, waitForJoinGroup)) {
             return false;

@@ -49,9 +49,21 @@ package org.apache.kafka.common.utils;
  */
 public class Timer {
     private final Time time;
+    /**
+     * 开始时间
+      */
     private long startMs;
+    /**
+     * 当前时间
+     */
     private long currentTimeMs;
+    /**
+     * 截止时间 = 开始时间 + 超时时间
+     */
     private long deadlineMs;
+    /**
+     * 超时时间
+     */
     private long timeoutMs;
 
     Timer(Time time, long timeoutMs) {

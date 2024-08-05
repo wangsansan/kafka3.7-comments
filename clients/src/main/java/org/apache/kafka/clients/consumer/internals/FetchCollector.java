@@ -327,7 +327,7 @@ public class FetchCollector<K, V> {
         // we are interested in this fetch only if the beginning offset matches the
         // current consumed position
         /**
-         * 查询当前 partition 已消费offset位置
+         * 查询当前 partition 拉取消息offset
          */
         SubscriptionState.FetchPosition position = subscriptions.position(tp);
         if (position == null || position.offset != fetchOffset) {

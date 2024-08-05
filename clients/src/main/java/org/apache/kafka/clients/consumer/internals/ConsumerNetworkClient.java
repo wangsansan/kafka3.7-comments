@@ -270,7 +270,7 @@ public class ConsumerNetworkClient implements Closeable {
             // send all the requests we can send now
             /**
              * 底层还是调用的 kafkaClient -> networkClient -> kafkaChannel
-             * 也就是目前只是把待发送数据同步到了 kafkaChannel的send对象上了
+             * 也就是目前只是把待发送数据同步到了 kafkaChannel 的send对象上了
              */
             long pollDelayMs = trySend(timer.currentTimeMs());
 
