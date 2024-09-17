@@ -469,6 +469,7 @@ public class RecordAccumulator {
             FutureRecordMetadata future = last.tryAppend(timestamp, key, value, headers, callback, nowMs);
             if (future == null) {
                 // 最后一个 batch 不能再append消息了，就关闭，等待发送，同时跳转到 return null
+                // 同时也认定该batch已经 full 了
                 last.closeForRecordAppends();
             } else {
                 int appendedBytes = last.estimatedSizeInBytes() - initialBytes;
