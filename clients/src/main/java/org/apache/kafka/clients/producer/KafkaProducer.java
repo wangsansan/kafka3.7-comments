@@ -1037,6 +1037,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             // take into account broker load, the amount of data produced to each partition, etc.).
             /**
              * 第三步，计算要发送消息的发往的 partition
+             * 默认情况下，此时返回的是-1， unknown
              */
             int partition = partition(record, serializedKey, serializedValue, cluster);
 
@@ -1056,6 +1057,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             /**
              * 第四步，把 producerRecord 通过 accumulator 放到 recordBatch里
              * append到最后一个batch里，或者新开一个batch
+             * 包含了默认情况下初始化 partitioner：粘性 partitioner
              */
             RecordAccumulator.RecordAppendResult result = accumulator.append(record.topic(), partition, timestamp, serializedKey,
                     serializedValue, headers, appendCallbacks, remainingWaitMs, abortOnNewBatch, nowMs, cluster);
@@ -1450,8 +1452,14 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
         if (record.partition() != null)
             return record.partition();
 
+        /**
+         * 默认情况下 partitioner = null，可以参看 ProducerConfig
+         * 和Kafka2.1不同，Kafka2.1的 ProducerConfig 中设置 partitioner = DefaultPartitioner
+         * 该版本默认值是null
+         */
         if (partitioner != null) {
-            // 默认情况下，使用了粘性分配器，也就是同一个topic总是发往同一个partition，减少连接创建数，增加吞吐量
+            // 粘性分配器，总是同一个topic总是发往同一个partition，减少连接创建数，增加吞吐量
+            // 设置 partitioner 的逻辑在 BuiltInPartitioner.peekCurrentPartitionInfo里
             int customPartition = partitioner.partition(
                 record.topic(), record.key(), serializedKey, record.value(), serializedValue, cluster);
             if (customPartition < 0) {

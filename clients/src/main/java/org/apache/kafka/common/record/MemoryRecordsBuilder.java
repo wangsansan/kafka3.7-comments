@@ -839,6 +839,10 @@ public class MemoryRecordsBuilder implements AutoCloseable {
     }
 
     public boolean isFull() {
+        /**
+         * writeLimit <= estimatedBytesWritten()意思是：
+         * 当前预估写入的数据大小已经超过了writeLimit
+         */
         // note that the write limit is respected only after the first record is added which ensures we can always
         // create non-empty batches (this is used to disable batching when the producer's batch size is set to 0).
         return appendStream == CLOSED_STREAM || (this.numRecords > 0 && this.writeLimit <= estimatedBytesWritten());

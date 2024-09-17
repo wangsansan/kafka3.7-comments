@@ -71,14 +71,23 @@ public class BuiltInPartitioner {
         // Cache volatile variable in local variable.
         PartitionLoadStats partitionLoadStats = this.partitionLoadStats;
         int partition;
-
+        /**
+         * partitionLoadStats的数据更新操作发生在 Sender 线程死循环里，所以此时可能为null，也可能不为null
+         */
         if (partitionLoadStats == null) {
+            /**
+             * 通过读 Cluster 的构造方法可知，所谓的 available partition 和 all partition 的区别在于
+             * available partition 的leader != null，也就是可以发送和消费
+             */
             // We don't have stats to do adaptive partitioning (or it's disabled), just switch to the next
             // partition based on uniform distribution.
             List<PartitionInfo> availablePartitions = cluster.availablePartitionsForTopic(topic);
             if (availablePartitions.size() > 0) {
                 partition = availablePartitions.get(random % availablePartitions.size()).partition();
             } else {
+                /**
+                 * 此时可能会把消息发送到被设置了【暂停消费】的partition中
+                 */
                 // We don't have available partitions, just pick one among all partitions.
                 List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
                 partition = random % partitions.size();
@@ -87,10 +96,23 @@ public class BuiltInPartitioner {
             // Calculate next partition based on load distribution.
             // Note that partitions without leader are excluded from the partitionLoadStats.
             assert partitionLoadStats.length > 0;
-
+            /**
+             * 如果 cumulativeFrequencyTable = [4,5,8]
+             * 随机数 0, 1, 2, 3 会映射到 partition[0], 4 会映射到 partition[1]
+             * 而 5, 6, 7 会映射 partition[2]
+             * cumulativeFrequencyTable：一个比较复杂的类似于分布式Hash的表，来决定应该选择哪个partition来发送消息
+              */
             int[] cumulativeFrequencyTable = partitionLoadStats.cumulativeFrequencyTable;
+            /**
+             * cumulativeFrequencyTable[partitionLoadStats.length - 1]里保存的是最后一个partition对应的用来模运算的值
+             * 也就是maxValue，通过随机数和maxValue进行模运算，得到一个value，来确定选哪个partition
+             * 参考上面写的例子
+             */
             int weightedRandom = random % cumulativeFrequencyTable[partitionLoadStats.length - 1];
 
+            /**
+             * 通过二分法，找出value应该映射到 cumulativeFrequencyTable 的哪个下标
+             */
             // By construction, the cumulative frequency table is sorted, so we can use binary
             // search to find the desired index.
             int searchResult = Arrays.binarySearch(cumulativeFrequencyTable, 0, partitionLoadStats.length, weightedRandom);
@@ -139,14 +161,27 @@ public class BuiltInPartitioner {
      * @return sticky partition info object
      */
     StickyPartitionInfo peekCurrentPartitionInfo(Cluster cluster) {
+        /**
+         * 当不是第一次来获取该数据的时候，就会返回上次的 partition
+         * 那是什么时候变更的呢？不可能同一个topic永远发一个partition吧？
+         * 更新stickyPartitionInfo的逻辑在 BuiltInPartitioner#updatePartitionInfo()中
+         * 每次对消息进行append前以及append后会做这个操作
+         */
         StickyPartitionInfo partitionInfo = stickyPartitionInfo.get();
-        if (partitionInfo != null)
+        if (partitionInfo != null) {
             return partitionInfo;
+        }
 
+        /**
+         * 计算当前消息要发送到的 partition，且放到了 stickyPartitionInfo 中
+         * stickyPartitionInfo 是 topic 维度的，所以每个topic该取值是一样的
+         * 为了防止并发，使用CAS来更新 stickyPartitionInfo
+         */
         // We're the first to create it.
         partitionInfo = new StickyPartitionInfo(nextPartition(cluster));
-        if (stickyPartitionInfo.compareAndSet(null, partitionInfo))
+        if (stickyPartitionInfo.compareAndSet(null, partitionInfo)) {
             return partitionInfo;
+        }
 
         // Someone has raced us.
         return stickyPartitionInfo.get();
@@ -191,6 +226,9 @@ public class BuiltInPartitioner {
             return;
 
         assert partitionInfo == stickyPartitionInfo.get();
+        /**
+         * partitionInfo.producedBytes是指当前topic使用的partition已经append的数据量
+         */
         int producedBytes = partitionInfo.producedBytes.addAndGet(appendedBytes);
 
         // We're trying to switch partition once we produce stickyBatchSize bytes to a partition
@@ -218,6 +256,12 @@ public class BuiltInPartitioner {
                 producedBytes, stickyBatchSize, enableSwitch);
         }
 
+        /**
+         * stickyBatchSize 等于 batchSize = 16KB
+         * 也就是
+         * enableSwitch：true，当前partition发送了一个batch数据之后就换partition
+         * enableSwitch: false， 当前partition发送了2个batch数据之后换partition
+         */
         if (producedBytes >= stickyBatchSize && enableSwitch || producedBytes >= stickyBatchSize * 2) {
             // We've produced enough to this partition, switch to next.
             StickyPartitionInfo newPartitionInfo = new StickyPartitionInfo(nextPartition(cluster));
@@ -332,6 +376,7 @@ public class BuiltInPartitioner {
      * The partition load stats for each topic that are used for adaptive partition distribution.
      */
     private final static class PartitionLoadStats {
+        // 累计频率表
         public final int[] cumulativeFrequencyTable;
         public final int[] partitionIds;
         public final int length;

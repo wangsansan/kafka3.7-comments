@@ -328,11 +328,17 @@ public class RecordAccumulator {
                 Deque<ProducerBatch> dq = topicInfo.batches.computeIfAbsent(effectivePartition, k -> new ArrayDeque<>());
                 synchronized (dq) {
                     // After taking the lock, validate that the partition hasn't changed and retry.
+                    /**
+                     * 如果partitionChanged，那么重新选择partition发送数据
+                     */
                     if (partitionChanged(topic, topicInfo, partitionInfo, dq, nowMs, cluster))
                         continue;
                     // 将消息append到batch里的实际执行方法
                     RecordAppendResult appendResult = tryAppend(timestamp, key, value, headers, callbacks, dq, nowMs);
                     if (appendResult != null) {
+                        /**
+                         * 当前数据append到batch 成功之后也需要判断是否需要更换一个 partition
+                         */
                         // If queue has incomplete batches we disable switch (see comments in updatePartitionInfo).
                         boolean enableSwitch = allBatchesFull(dq);
                         topicInfo.builtInPartitioner.updatePartitionInfo(partitionInfo, appendResult.appendedBytes, cluster, enableSwitch);
@@ -783,6 +789,7 @@ public class RecordAccumulator {
         // We've collected the queue sizes for partitions of this topic, now we can calculate
         // load stats.  NOTE: the stats are calculated in place, modifying the
         // queueSizes array.
+        // 此处才会更新 partitionLoadStats
         topicInfo.builtInPartitioner.updatePartitionLoadStats(queueSizes, partitionIds, queueSizesIndex + 1);
         return nextReadyCheckDelayMs;
     }
@@ -1295,6 +1302,9 @@ public class RecordAccumulator {
         public final ConcurrentMap<Integer /*partition*/, Deque<ProducerBatch>> batches = new CopyOnWriteMap<>();
         public final BuiltInPartitioner builtInPartitioner;
 
+        /**
+         * 默认情况下 stickyBatchSize 等于 batchSize = 16KB
+         */
         public TopicInfo(LogContext logContext, String topic, int stickyBatchSize) {
             builtInPartitioner = new BuiltInPartitioner(logContext, topic, stickyBatchSize);
         }
