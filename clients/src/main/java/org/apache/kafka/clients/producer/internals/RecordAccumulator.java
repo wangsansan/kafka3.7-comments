@@ -934,7 +934,7 @@ public class RecordAccumulator {
             final ProducerBatch batch;
             synchronized (deque) {
                 // invariant: !isMuted(tp,now) && deque != null
-                // 每个partition 每次只发送其 batch 队列的第一个batch
+                // 每个partition 每次只发送其 batch 队列的第一个batch，为了保证消息顺序
                 ProducerBatch first = deque.peekFirst();
                 if (first == null)
                     continue;

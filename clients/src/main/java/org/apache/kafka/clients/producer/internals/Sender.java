@@ -880,17 +880,16 @@ public class Sender implements Runnable {
     /**
      * Transfer the record batches into a list of produce requests on a per-node basis
      */
-    private void sendProduceRequests(Map<Integer, List<ProducerBatch>> collated, long now) {
-        for (Map.Entry<Integer, List<ProducerBatch>> entry : collated.entrySet())
+    private void sendProduceRequests(Map<Integer/*nodeId*/, List<ProducerBatch>> collated, long now) {
+        for (Map.Entry<Integer/*nodeId*/, List<ProducerBatch>> entry : collated.entrySet())
             sendProduceRequest(now, entry.getKey(), acks, requestTimeoutMs, entry.getValue());
     }
 
     /**
      * Create a produce request from the given record batches
      * 针对每个node（destination）发送可以发送的batches
-     * acks是 topic 维度的，Sender也是 topic 维度的，所以在 KafkaProducer 初始化的时候，进行赋值
      */
-    private void sendProduceRequest(long now, int destination, short acks, int timeout, List<ProducerBatch> batches) {
+    private void sendProduceRequest(long now, int destination/*nodeId*/, short acks, int timeout, List<ProducerBatch> batches) {
         if (batches.isEmpty())
             return;
 
@@ -939,7 +938,7 @@ public class Sender implements Runnable {
                         .setTransactionalId(transactionalId)
                         .setTopicData(tpd));
         /**
-         * 注意此处给发送加了一个 callback，这个 callback 的逻辑会 producerBatch 的done方法
+         * 注意此处给发送加了一个 callback，这个 callback 的逻辑会调用 producerBatch 的done方法
          * 在 poll 方法之后会执行该回调方法
          */
         RequestCompletionHandler callback = response -> handleProduceResponse(response, recordsByPartition, time.milliseconds());
