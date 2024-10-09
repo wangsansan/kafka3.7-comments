@@ -1013,7 +1013,7 @@ public class KafkaProducer<K, V> implements Producer<K, V> {
             Cluster cluster = clusterAndWaitTime.cluster;
             /**
              * 第二步，对要发送的消息 producerRecord 进行序列化
-             * 因为网络传输，数据发送一定要转化成二级制
+             * 因为网络传输，数据发送一定要转化成二进制
              */
             byte[] serializedKey;
             try {
