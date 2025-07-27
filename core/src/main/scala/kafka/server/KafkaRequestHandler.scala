@@ -86,6 +86,9 @@ object KafkaRequestHandler {
 
 /**
  * A thread that answers kafka requests.
+ * RequestHandler：处理kafka请求的处理器，实现了Runnable接口，会一直run
+ *  - data request
+ *  - control request
  */
 class KafkaRequestHandler(
   id: Int,

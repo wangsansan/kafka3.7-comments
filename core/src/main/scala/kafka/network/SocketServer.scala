@@ -96,9 +96,12 @@ class SocketServer(val config: KafkaConfig,
   memoryPoolSensor.add(new Meter(TimeUnit.MILLISECONDS, memoryPoolDepletedPercentMetricName, memoryPoolDepletedTimeMetricName))
   private val memoryPool = if (config.queuedMaxBytes > 0) new SimpleMemoryPool(config.queuedMaxBytes, config.socketRequestMaxBytes, false, memoryPoolSensor) else MemoryPool.NONE
   // data-plane
+  // 处理「数据请求」的 acceptor 和 requestChannel
   private[network] val dataPlaneAcceptors = new ConcurrentHashMap[EndPoint, DataPlaneAcceptor]()
+  // 定义了requestChannel里 requestQueue 的 queueSize
   val dataPlaneRequestChannel = new RequestChannel(maxQueuedRequests, DataPlaneAcceptor.MetricPrefix, time, apiVersionManager.newRequestMetrics)
   // control-plane
+  // 处理「控制请求」的 acceptor 和 requestChannel
   private[network] var controlPlaneAcceptorOpt: Option[ControlPlaneAcceptor] = None
   val controlPlaneRequestChannelOpt: Option[RequestChannel] = config.controlPlaneListenerName.map(_ =>
     new RequestChannel(20, ControlPlaneAcceptor.MetricPrefix, time, apiVersionManager.newRequestMetrics))
@@ -880,6 +883,10 @@ private[kafka] abstract class Acceptor(val socketServer: SocketServer,
   }
 }
 
+/**
+ * 伴生对象，用于保存半生类的基本常量和工具方法
+ * 该半生对象里定义的常量，在 class Processor 中可以直接使用
+ */
 private[kafka] object Processor {
   val IdlePercentMetricName = "IdlePercent"
   val NetworkProcessorMetricTag = "networkProcessor"
@@ -939,6 +946,7 @@ private[kafka] class Processor(
   }
 
   private val newConnections = new ArrayBlockingQueue[SocketChannel](connectionQueueSize)
+  // mutable 代表是可变的
   private val inflightResponses = mutable.Map[String, RequestChannel.Response]()
   private val responseQueue = new LinkedBlockingDeque[RequestChannel.Response]()
 

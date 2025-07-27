@@ -130,6 +130,7 @@ class KafkaServer(
   var controlPlaneRequestProcessor: KafkaApis = _
 
   var authorizer: Option[Authorizer] = None
+  // = _，和java里 = null是一个含义，也就是给属性默认值设置为null
   @volatile var socketServer: SocketServer = _
   var dataPlaneRequestHandlerPool: KafkaRequestHandlerPool = _
   var controlPlaneRequestHandlerPool: KafkaRequestHandlerPool = _
@@ -207,6 +208,7 @@ class KafkaServer(
   /**
    * Start up API for bringing up a single instance of the Kafka server.
    * Instantiates the LogManager, the SocketServer and the request handlers - KafkaRequestHandlers
+   * 梦开始的地方~
    */
   override def startup(): Unit = {
     try {
@@ -372,11 +374,18 @@ class KafkaServer(
         )
 
         // Create and start the socket server acceptor threads so that the bound port is known.
+        // 创建并启动 SocketServer 的 acceptor 线程，目的是让服务器先完成端口绑定，确保外部能知道实际监听的端口。
         // Delay starting processors until the end of the initialization sequence to ensure
         // that credentials have been loaded before processing authentications.
+        // 延迟启动 processor 线程（处理 I/O 事件的工作线程），直到初始化流程的最后阶段，
+        // 确保身份验证所需的凭证（credentials）已加载完成，再开始处理客户端的认证请求。
         //
         // Note that we allow the use of KRaft mode controller APIs when forwarding is enabled
         // so that the Envelope request is exposed. This is only used in testing currently.
+        /**
+         * socketServer初始化的时候，实例化了 requestChannel 和 requestAcceptor
+         *  数据请求（dataRequest） 和 控制请求（controlRequest）
+         */
         socketServer = new SocketServer(config, metrics, time, credentialProvider, apiVersionManager)
 
         // Start alter partition manager based on the IBP version
@@ -579,11 +588,17 @@ class KafkaServer(
           apiVersionManager = apiVersionManager,
           clientMetricsManager = None)
 
+        // 初始化 requestProcessor
         dataPlaneRequestProcessor = createKafkaApis(socketServer.dataPlaneRequestChannel)
 
+        // 初始化 requestHandlerPool
         dataPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.dataPlaneRequestChannel, dataPlaneRequestProcessor, time,
           config.numIoThreads, s"${DataPlaneAcceptor.MetricPrefix}RequestHandlerAvgIdlePercent", DataPlaneAcceptor.ThreadPrefix)
 
+        /**
+         * 由于 controlPlaneRequestChannelOpt 是Option 类型的，所以写代码时要基于真实存在进行处理
+         * 其实Scala的option，跟java的 Optional 是一个作用
+         */
         socketServer.controlPlaneRequestChannelOpt.foreach { controlPlaneRequestChannel =>
           controlPlaneRequestProcessor = createKafkaApis(controlPlaneRequestChannel)
           controlPlaneRequestHandlerPool = new KafkaRequestHandlerPool(config.brokerId, socketServer.controlPlaneRequestChannelOpt.get, controlPlaneRequestProcessor, time,
