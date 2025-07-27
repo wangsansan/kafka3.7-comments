@@ -256,6 +256,7 @@ public class LogSegment implements Closeable {
             ensureOffsetInRange(largestOffset);
 
             // append the messages
+            // 写入数据到 segment的日志文件，并不立马进行flush
             long appendedBytes = log.append(records);
             LOGGER.trace("Appended {} to {} at end offset {}", appendedBytes, log.file(), largestOffset);
             // Update the in memory max timestamp and corresponding offset.
@@ -263,6 +264,7 @@ public class LogSegment implements Closeable {
                 maxTimestampAndOffsetSoFar = new TimestampOffset(largestTimestampMs, shallowOffsetOfMaxTimestamp);
             }
             // append an entry to the index (if needed)
+            // 更新索引文件，索引文件的写入是通过 mmap 实现的
             if (bytesSinceLastIndexEntry > indexIntervalBytes) {
                 offsetIndex().append(largestOffset, physicalPosition);
                 timeIndex().maybeAppend(maxTimestampSoFar(), offsetOfMaxTimestampSoFar());

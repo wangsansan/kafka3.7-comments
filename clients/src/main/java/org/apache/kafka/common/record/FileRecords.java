@@ -176,6 +176,9 @@ public class FileRecords extends AbstractRecords implements Closeable {
     /**
      * Append a set of records to the file. This method is not thread-safe and must be
      * protected with a lock.
+     * 将records 写入当前 segment 的日志文件里
+     * 更新segment的日志文件大小
+     * 返回写入数据大小
      *
      * @param records The records to append
      * @return the number of bytes written to the underlying file

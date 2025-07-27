@@ -365,6 +365,7 @@ class Partition(val topicPartition: TopicPartition,
  * When setting the min ISR, there is no restriction on it. Even if the value does not make sense to be larger than
  * the replication factor. In case there are such setting, the effective min ISR of min(replication factor, min ISR)
  * is returned here.
+ * 默认情况下，由于minInSyncReplicas默认值是1，所以该方法默认也是返回1
  */
   private def effectiveMinIsr(leaderLog: UnifiedLog): Int = {
       leaderLog.config.minInSyncReplicas.min(remoteReplicasMap.size + 1)
@@ -1148,6 +1149,10 @@ class Partition(val topicPartition: TopicPartition,
    * @return true if the HW was incremented, and false otherwise.
    */
   private def maybeIncrementLeaderHW(leaderLog: UnifiedLog, currentTimeMs: Long = time.milliseconds): Boolean = {
+    /*
+     * 默认情况下，isUnderMinIsr = false：代表当前 isr 的 size >= 1
+     * 为true：代表当前 isr 的 size < 1
+     */
     if (isUnderMinIsr) {
       trace(s"Not increasing HWM because partition is under min ISR(ISR=${partitionState.isr}")
       return false
@@ -1155,6 +1160,7 @@ class Partition(val topicPartition: TopicPartition,
     // maybeIncrementLeaderHW is in the hot path, the following code is written to
     // avoid unnecessary collection generation
     val leaderLogEndOffset = leaderLog.logEndOffsetMetadata
+    // 新HW默认为leader的LEO
     var newHighWatermark = leaderLogEndOffset
     remoteReplicasMap.values.foreach { replica =>
       val replicaState = replica.stateSnapshot
@@ -1164,6 +1170,7 @@ class Partition(val topicPartition: TopicPartition,
         isReplicaIsrEligible(replica.brokerId)
       }
 
+      // 由于newHighWatermark 在更新，所以当循环走完，newHighWatermark = 所有 replica 的min(LEO)
       // Note here we are using the "maximal", see explanation above
       if (replicaState.logEndOffsetMetadata.messageOffset < newHighWatermark.messageOffset &&
           (partitionState.maximalIsr.contains(replica.brokerId) || shouldWaitForReplicaToJoinIsr)
@@ -1173,6 +1180,7 @@ class Partition(val topicPartition: TopicPartition,
     }
 
     leaderLog.maybeIncrementHighWatermark(newHighWatermark) match {
+      // 更新了高水位，打debug日志
       case Some(oldHighWatermark) =>
         debug(s"High watermark updated from $oldHighWatermark to $newHighWatermark")
         true
@@ -1348,10 +1356,16 @@ class Partition(val topicPartition: TopicPartition,
 
   def appendRecordsToLeader(records: MemoryRecords, origin: AppendOrigin, requiredAcks: Int,
                             requestLocal: RequestLocal, verificationGuard: VerificationGuard = VerificationGuard.SENTINEL): LogAppendInfo = {
+    /**
+     * 1. 先获取读锁 leaderIsrUpdateLock 的读锁
+     * 2. 获取到读锁之后，判断当前 partition 的leaderLog 是不是在本地，其实也就是当前partition的leader replica 是不是在该broker上
+     */
     val (info, leaderHWIncremented) = inReadLock(leaderIsrUpdateLock) {
       leaderLogIfLocal match {
         case Some(leaderLog) =>
+          // 获取最小 isr 个数
           val minIsr = effectiveMinIsr(leaderLog)
+          // 获取当前 isr 个数
           val inSyncSize = partitionState.isr.size
 
           // Avoid writing to leader if there are not enough insync replicas to make it safe
@@ -1360,10 +1374,15 @@ class Partition(val topicPartition: TopicPartition,
               s"is insufficient to satisfy the min.isr requirement of $minIsr for partition $topicPartition")
           }
 
+          /**
+           * 1. 将 records append 到合适的 segment
+           * 2. 更新 offset index 和 time index
+            */
           val info = leaderLog.appendAsLeader(records, leaderEpoch = this.leaderEpoch, origin,
             interBrokerProtocolVersion, requestLocal, verificationGuard)
 
           // we may need to increment high watermark since ISR could be down to 1
+          // 尝试更新HW
           (info, maybeIncrementLeaderHW(leaderLog))
 
         case None =>

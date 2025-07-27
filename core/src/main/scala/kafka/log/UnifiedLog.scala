@@ -320,6 +320,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
       // offset metadata is on a newer segment, which occurs whenever the log is rolled to a new segment.
       if (oldHighWatermark.messageOffset < newHighWatermark.messageOffset ||
         (oldHighWatermark.messageOffset == newHighWatermark.messageOffset && oldHighWatermark.onOlderSegment(newHighWatermark))) {
+        // 更新高水位
         updateHighWatermarkMetadata(newHighWatermark)
         Some(oldHighWatermark)
       } else {
@@ -778,16 +779,20 @@ class UnifiedLog(@volatile var logStartOffset: Long,
     else {
 
       // trim any invalid bytes or partial messages before appending it to the on-disk log
+      // validRecords 也是 MemoryRecords 类型
       var validRecords = trimInvalidBytes(records, appendInfo)
 
       // they are valid, insert them in the log
       lock synchronized {
         maybeHandleIOException(s"Error while appending records to $topicPartition in dir ${dir.getParent}") {
           localLog.checkIfMemoryMappedBufferClosed()
+          // 当接收的是producer发过来的消息时，validateAndAssignOffsets = true
           if (validateAndAssignOffsets) {
             // assign offsets to the message set
+            // 获取当前partition的LEO
             val offset = PrimitiveRef.ofLong(localLog.logEndOffset)
             appendInfo.setFirstOffset(offset.value)
+            // 校验
             val validateAndOffsetAssignResult = try {
               val targetCompression = BrokerCompressionType.forName(config.compressionType).targetCompressionType(appendInfo.sourceCompression)
               val validator = new LogValidator(validRecords,
@@ -858,6 +863,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
 
           // update the epoch cache with the epoch stamped onto the message by the leader
           validRecords.batches.forEach { batch =>
+            // kafka2到kafka3.7，batch.magic 都是 2
             if (batch.magic >= RecordBatch.MAGIC_VALUE_V2) {
               maybeAssignEpochStartOffset(batch.partitionLeaderEpoch, batch.baseOffset)
             } else {
@@ -872,12 +878,14 @@ class UnifiedLog(@volatile var logStartOffset: Long,
           }
 
           // check messages set size may be exceed config.segmentSize
+          // config.segmentSize 默认是 1GB，一次性不能写入1GB
           if (validRecords.sizeInBytes > config.segmentSize) {
             throw new RecordBatchTooLargeException(s"Message batch size is ${validRecords.sizeInBytes} bytes in append " +
               s"to partition $topicPartition, which exceeds the maximum configured segment size of ${config.segmentSize}.")
           }
 
           // maybe roll the log if this segment is full
+          // 获取可写入数据的 segment，roll出来的new segment 或者是 当前 segment
           val segment = maybeRoll(validRecords.sizeInBytes, appendInfo)
 
           val logOffsetMetadata = new LogOffsetMetadata(
@@ -903,7 +911,9 @@ class UnifiedLog(@volatile var logStartOffset: Long,
               // will be cleaned up after the log directory is recovered. Note that the end offset of the
               // ProducerStateManager will not be updated and the last stable offset will not advance
               // if the append to the transaction index fails.
+              // 写入record日志
               localLog.append(appendInfo.lastOffset, appendInfo.maxTimestamp, appendInfo.offsetOfMaxTimestamp, validRecords)
+              // 又是判断，如果HW >= LEO，就更新HW
               updateHighWatermarkWithLogEndOffset()
 
               // update the producer state
@@ -928,7 +938,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
                 s"first offset: ${appendInfo.firstOffset}, " +
                 s"next offset: ${localLog.logEndOffset}, " +
                 s"and messages: $validRecords")
-
+              // config.flushInterval默认值是Long.MAX_VALUE, 所以默认情况下segment日志不会进行flush，交给操作系统了
               if (localLog.unflushedMessages >= config.flushInterval) flush(false)
           }
           appendInfo
@@ -1605,9 +1615,13 @@ class UnifiedLog(@volatile var logStartOffset: Long,
    * Roll the log over to a new empty log segment if necessary.
    * The segment will be rolled if one of the following conditions met:
    * 1. The logSegment is full
+   * 1. logSegment如果放入当前records，超过1GB
    * 2. The maxTime has elapsed since the timestamp of first message in the segment (or since the
    *    create time if the first message does not have a timestamp)
+   * 2. 自当前日志段中第一条消息的时间戳（若没有时间戳则以段创建时间为准）起，已超过配置的最大时间间隔（由 log.roll.hours 控制，默认 7 天）。
    * 3. The index is full
+   * 3. 日志段对应的索引文件（.index）已达到最大容量（由 log.index.size.max.bytes 控制，默认 10MB）。
+   *
    *
    * @param messagesSize The messages set size in bytes.
    * @param appendInfo log append information
@@ -1654,6 +1668,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
    * Roll the local log over to a new active segment starting with the expectedNextOffset (when provided),
    * or localLog.logEndOffset otherwise. This will trim the index to the exact size of the number of entries
    * it currently contains.
+   * 滚动一个新的segment，并返回最新的segment
    *
    * @return The newly rolled segment
    */
@@ -1669,6 +1684,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
     // which could block subsequent produces in the meantime.
     // flush is done in the scheduler thread along with segment flushing below
     val maybeSnapshot = producerStateManager.takeSnapshot(false)
+    // 此处的兜底判断，后续再看。目前不太清楚什么情况下 HW >= LEO
     updateHighWatermarkWithLogEndOffset()
     // Schedule an asynchronous flush of the old segment
     scheduler.scheduleOnce("flush-log", () => {

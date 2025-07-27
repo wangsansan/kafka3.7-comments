@@ -178,6 +178,7 @@ object RequestChannel extends Logging {
 
     def body[T <: AbstractRequest](implicit classTag: ClassTag[T], @nowarn("cat=unused") nn: NotNothing[T]): T = {
       bodyAndSize.request match {
+        // 如果 r 是 T 类型，就直接返回 r
         case r: T => r
         case r =>
           throw new ClassCastException(s"Expected request with type ${classTag.runtimeClass}, but found ${r.getClass}")

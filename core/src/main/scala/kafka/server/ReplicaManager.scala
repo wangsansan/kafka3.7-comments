@@ -172,16 +172,19 @@ sealed trait HostedPartition
 object HostedPartition {
   /**
    * This broker does not have any state for this partition locally.
+   * 当前 broker 本地没有该分区的任何状态（既不是领导者，也不是追随者，甚至没有该分区的元数据或数据副本）。
    */
   final object None extends HostedPartition
 
   /**
    * This broker hosts the partition and it is online.
+   * 当前 broker托管该分区，且分区处于在线状态（可正常提供服务，如处理读写请求）。
    */
   final case class Online(partition: Partition) extends HostedPartition
 
   /**
    * This broker hosts the partition, but it is in an offline log directory.
+   * 当前 broker 原本托管该分区，但分区所在的日志目录处于离线状态（不可用，如磁盘故障、目录被删除）。
    */
   final case class Offline(partition: Option[Partition]) extends HostedPartition
 }
@@ -644,7 +647,9 @@ class ReplicaManager(val config: KafkaConfig,
     errorMap
   }
 
+  // 获取当前 tp 的 状态
   def getPartition(topicPartition: TopicPartition): HostedPartition = {
+    // allPartitions 理解为java里的Map
     Option(allPartitions.get(topicPartition)).getOrElse(HostedPartition.None)
   }
 
@@ -683,6 +688,7 @@ class ReplicaManager(val config: KafkaConfig,
   }
 
   def getPartitionOrException(topicPartition: TopicPartition): Partition = {
+    // 判断当前server broker 是否能够处理该 tp，能处理，就直接返回partition
     getPartitionOrError(topicPartition) match {
       case Left(Errors.KAFKA_STORAGE_ERROR) =>
         throw new KafkaStorageException(s"Partition $topicPartition is in an offline log directory")
@@ -788,6 +794,7 @@ class ReplicaManager(val config: KafkaConfig,
         }
 
       if (notYetVerifiedEntriesPerPartition.isEmpty || addPartitionsToTxnManager.isEmpty) {
+        // 默认情况走到该逻辑
         appendEntries(verifiedEntriesPerPartition, internalTopicsAllowed, origin, requiredAcks, verificationGuards.toMap,
           errorsPerPartition, recordValidationStatsCallback, timeout, responseCallback, delayedProduceLock, actionQueue)(requestLocal, Map.empty)
       } else {
@@ -848,6 +855,7 @@ class ReplicaManager(val config: KafkaConfig,
                             actionQueue: ActionQueue)
                            (requestLocal: RequestLocal, unverifiedEntries: Map[TopicPartition, Errors]): Unit = {
     val sTime = time.milliseconds
+    // 重新定义变量
     val verifiedEntries =
       if (unverifiedEntries.isEmpty)
         allEntries
@@ -856,6 +864,7 @@ class ReplicaManager(val config: KafkaConfig,
           !unverifiedEntries.contains(tp)
         }
 
+    // 将 msg 写入到当前的 Log 里
     val localProduceResults = appendToLocalLog(internalTopicsAllowed = internalTopicsAllowed,
       origin, verifiedEntries, requiredAcks, requestLocal, verificationGuards.toMap)
     debug("Produce to local log in %d ms".format(time.milliseconds - sTime))
@@ -1056,17 +1065,21 @@ class ReplicaManager(val config: KafkaConfig,
     initialProduceStatus: Map[TopicPartition, ProducePartitionStatus],
     responseCallback: Map[TopicPartition, PartitionResponse] => Unit,
   ): Unit = {
+    // requiredAcks = -1的话，delayedProduceRequestRequired = true
+    // kafka 3.7 默认是 -1了，kafka2默认是1
     if (delayedProduceRequestRequired(requiredAcks, entriesPerPartition, initialAppendResults)) {
       // create delayed produce operation
       val produceMetadata = ProduceMetadata(requiredAcks, initialProduceStatus)
       val delayedProduce = new DelayedProduce(timeoutMs, produceMetadata, this, responseCallback, delayedProduceLock)
 
       // create a list of (topic, partition) pairs to use as keys for this delayed produce operation
+      // key 是 tp
       val producerRequestKeys = entriesPerPartition.keys.map(TopicPartitionOperationKey(_)).toSeq
 
       // try to complete the request immediately, otherwise put it into the purgatory
       // this is because while the delayed produce operation is being created, new
       // requests may arrive and hence make this operation completable.
+      // 也就是判断此时是否需要给producer返回response，毕竟ack值有意义
       delayedProducePurgatory.tryCompleteElseWatch(delayedProduce, producerRequestKeys)
     } else {
       // we can respond immediately
@@ -1517,6 +1530,7 @@ class ReplicaManager(val config: KafkaConfig,
       brokerTopicStats.allTopicsStats.totalProduceRequestRate.mark()
 
       // reject appending to internal topics if it is not allowed
+      // internal topics 是指 offset、cluster status等的内部topic
       if (Topic.isInternal(topicPartition.topic) && !internalTopicsAllowed) {
         (topicPartition, LogAppendResult(
           LogAppendInfo.UNKNOWN_LOG_APPEND_INFO,
@@ -1525,6 +1539,7 @@ class ReplicaManager(val config: KafkaConfig,
       } else {
         try {
           val partition = getPartitionOrException(topicPartition)
+          // 更新segment日志和索引，maybe update HW
           val info = partition.appendRecordsToLeader(records, origin, requiredAcks, requestLocal,
             verificationGuards.getOrElse(topicPartition, VerificationGuard.SENTINEL))
           val numAppendedMessages = info.numMessages

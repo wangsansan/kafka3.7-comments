@@ -902,6 +902,10 @@ public class Sender implements Runnable {
             if (batch.magic() < minUsedMagic)
                 minUsedMagic = batch.magic();
         }
+        /**
+         * TopicProduceDataCollection 这个类型有点像HashMap
+         * key：topic； value<index(partitionIndex), records>
+          */
         ProduceRequestData.TopicProduceDataCollection tpd = new ProduceRequestData.TopicProduceDataCollection();
         for (ProducerBatch batch : batches) {
             TopicPartition tp = batch.topicPartition;
@@ -917,6 +921,7 @@ public class Sender implements Runnable {
             if (!records.hasMatchingMagic(minUsedMagic))
                 records = batch.records().downConvert(minUsedMagic, 0, time).records();
             ProduceRequestData.TopicProduceData tpData = tpd.find(tp.topic());
+            // 下面这一坨就像是 map 的 computeIfAbsent 方法
             if (tpData == null) {
                 tpData = new ProduceRequestData.TopicProduceData().setName(tp.topic());
                 tpd.add(tpData);

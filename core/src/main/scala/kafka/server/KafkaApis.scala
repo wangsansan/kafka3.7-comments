@@ -589,7 +589,7 @@ class KafkaApis(val requestChannel: RequestChannel,
    * Handle a produce request
    */
   def handleProduceRequest(request: RequestChannel.Request, requestLocal: RequestLocal): Unit = {
-    // 将请求的原始 body 数据反序列化（或类型转换）为 ProduceRequest 类型的对象。
+    // RequestChannel的body方法，用于对 request 类型进行校验
     val produceRequest = request.body[ProduceRequest]
 
     if (RequestUtils.hasTransactionalRecords(produceRequest)) {
@@ -609,11 +609,16 @@ class KafkaApis(val requestChannel: RequestChannel,
     val authorizedTopics = authHelper.filterByAuthorized(request.context, WRITE, TOPIC,
       produceRequest.data().topicData().asScala)(_.name())
 
+    /**
+     * topic.partitionData 的类型是 List<ProduceRequestData.PartitionProduceData>
+     * ProduceRequestData.PartitionProduceData 里最重要的就是 index 和 records，index 就是 partition 的序号
+      */
     produceRequest.data.topicData.forEach(topic => topic.partitionData.forEach { partition =>
       val topicPartition = new TopicPartition(topic.name, partition.index)
       // This caller assumes the type is MemoryRecords and that is true on current serialization
       // We cast the type to avoid causing big change to code base.
       // https://issues.apache.org/jira/browse/KAFKA-10698
+      // 类型判断＋转义，可以参考Sender.sendProduceRequest方法，此时的records 确实是 MemoryRecords 类型
       val memoryRecords = partition.records.asInstanceOf[MemoryRecords]
       if (!authorizedTopics.contains(topicPartition.topic))
         unauthorizedTopicResponses += topicPartition -> new PartitionResponse(Errors.TOPIC_AUTHORIZATION_FAILED)
@@ -622,6 +627,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       else
         try {
           ProduceRequest.validateRecords(request.header.apiVersion, memoryRecords)
+          // Scala 对于Map的操作，真是简化啊，此处类似于 put(topicPartition, memoryRecords);
           authorizedRequestInfo += (topicPartition -> memoryRecords)
         } catch {
           case e: ApiException =>

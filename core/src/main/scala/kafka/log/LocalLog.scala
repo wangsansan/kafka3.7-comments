@@ -408,6 +408,7 @@ class LocalLog(@volatile private var _dir: File,
 
   private[log] def append(lastOffset: Long, largestTimestamp: Long, shallowOffsetOfMaxTimestamp: Long, records: MemoryRecords): Unit = {
     segments.activeSegment.append(lastOffset, largestTimestamp, shallowOffsetOfMaxTimestamp, records)
+    // 此时只把 LEO + 1，所以每次写入的单位是batch，并不是message，所以consumer在fetch的时候，拿到的也是batch，commit offset时，也是batch为维度
     updateLogEndOffset(lastOffset + 1)
   }
 
