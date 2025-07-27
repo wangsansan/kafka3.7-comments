@@ -705,7 +705,7 @@ public class RecordAccumulator {
 
         int queueSizesIndex = -1;
         /**
-         * exhausted：当前等待分配内存的线程数大于1，是用来判断client的buffer空间是否还有
+         * exhausted：当前等待分配内存的线程数大于1，是用来判断 client 的 buffer 空间是否还有
          * 当 free.queued() > 0,代表buffer空间不足，存在线程等待其他线程释放buffer空间
           */
         boolean exhausted = this.free.queued() > 0;
@@ -918,6 +918,9 @@ public class RecordAccumulator {
             updateDrainIndex(node.idString(), drainIndex);
             drainIndex = (drainIndex + 1) % parts.size();
             // Only proceed if the partition has no in-flight batches.
+            /**
+             * mute 操作是 server 端对 client 端的操作，防止同一个 connection 不同批次发送的消息处理时乱序
+              */
             if (isMuted(tp))
                 continue;
             Metadata.LeaderAndEpoch leaderAndEpoch = metadata.currentLeader(tp);
@@ -927,6 +930,7 @@ public class RecordAccumulator {
                 continue;
             if (!node.equals(leaderAndEpoch.leader.get()))
                 continue;
+            // 注意此处用的是单向队列
             Deque<ProducerBatch> deque = getDeque(tp);
             if (deque == null)
                 continue;
@@ -934,7 +938,7 @@ public class RecordAccumulator {
             final ProducerBatch batch;
             synchronized (deque) {
                 // invariant: !isMuted(tp,now) && deque != null
-                // 每个partition 每次只发送其 batch 队列的第一个batch，为了保证消息顺序
+                // 每个 partition 每次只发送其 batch 队列的第一个batch，为了保证消息顺序
                 ProducerBatch first = deque.peekFirst();
                 if (first == null)
                     continue;
@@ -1013,6 +1017,7 @@ public class RecordAccumulator {
      * @param maxSize The maximum number of bytes to drain
      * @param now The current unix time in milliseconds
      * @return A list of {@link ProducerBatch} for each node specified with total size less than the requested maxSize.
+     * 从每个 node 上 drain 可发送的batch，该 node 上的所有leader partition，然后获取到每个tp的deque，然后deque.pollFirst
      */
     public Map<Integer/*nodeId*/, List<ProducerBatch>> drain(Metadata metadata, Set<Node> nodes, int maxSize, long now) {
         if (nodes.isEmpty())

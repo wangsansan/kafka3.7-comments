@@ -415,6 +415,7 @@ public class Sender implements Runnable {
 
         // create produce requests
         // 查找当前可以发送的 batches
+        // readyNodes -> forEach(node -> topicPartitions -> forEach(tp -> batchDeque -> batchDeque.pollFirst))
         Map<Integer/*nodeId*/, List<ProducerBatch>> batches = this.accumulator.drain(metadata, result.readyNodes, this.maxRequestSize, now);
         // 将当前可发送batches放到 inflightBatches 里面
         addToInflightBatches(batches);
@@ -931,6 +932,11 @@ public class Sender implements Runnable {
             transactionalId = transactionManager.transactionalId();
         }
 
+        /**
+         * 注意此处的 requestBuilder 类型，在最终发送的时候(NetworkClient#doSend())，build 出来的是 ProduceRequest
+         * 在 build 的过程中，也将 ProduceRequest 里的 apiKey 赋值了 ApiKeys.PRODUCE
+         * 同时 requestBuilder 的 apiKey 属性 = ApiKeys.PRODUCE，
+         */
         ProduceRequest.Builder requestBuilder = ProduceRequest.forMagic(minUsedMagic,
                 new ProduceRequestData()
                         .setAcks(acks)

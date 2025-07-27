@@ -72,6 +72,11 @@ public class ProduceRequest extends AbstractRequest {
             this.data = data;
         }
 
+        /**
+         * 发送消息之前，会调用该方法
+         * @param version
+         * @return
+         */
         @Override
         public ProduceRequest build(short version) {
             return build(version, true);
@@ -120,6 +125,7 @@ public class ProduceRequest extends AbstractRequest {
     private volatile Map<TopicPartition, Integer> partitionSizes;
 
     public ProduceRequest(ProduceRequestData produceRequestData, short version) {
+        // 将 apiKey 属性设置为 ApiKeys.PRODUCE， 方便server端处理
         super(ApiKeys.PRODUCE, version);
         this.data = produceRequestData;
         this.acks = data.acks();

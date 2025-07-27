@@ -589,6 +589,7 @@ class KafkaApis(val requestChannel: RequestChannel,
    * Handle a produce request
    */
   def handleProduceRequest(request: RequestChannel.Request, requestLocal: RequestLocal): Unit = {
+    // 将请求的原始 body 数据反序列化（或类型转换）为 ProduceRequest 类型的对象。
     val produceRequest = request.body[ProduceRequest]
 
     if (RequestUtils.hasTransactionalRecords(produceRequest)) {
