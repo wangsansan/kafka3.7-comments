@@ -791,6 +791,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
             // assign offsets to the message set
             // 获取当前partition的LEO
             val offset = PrimitiveRef.ofLong(localLog.logEndOffset)
+            // 当前的LEO作为第一个写入位
             appendInfo.setFirstOffset(offset.value)
             // 校验
             val validateAndOffsetAssignResult = try {
@@ -809,6 +810,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
                 origin,
                 interBrokerProtocolVersion
               )
+              // 这个方法里会对offset的value进行递增，相当于记录了当前的records -> batch -> record的数量，每个record -> LEO + 1
               validator.validateMessagesAndAssignOffsets(offset,
                 validatorMetricsRecorder,
                 requestLocal.getOrElse(throw new IllegalArgumentException(
@@ -823,6 +825,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
             validRecords = validateAndOffsetAssignResult.validatedRecords
             appendInfo.setMaxTimestamp(validateAndOffsetAssignResult.maxTimestampMs)
             appendInfo.setOffsetOfMaxTimestamp(validateAndOffsetAssignResult.shallowOffsetOfMaxTimestampMs)
+            // 此时offset已经是更新过的，所以appendInfo的lastOffset-firstOffset + 1，就是本次写入的record的数量
             appendInfo.setLastOffset(offset.value - 1)
             appendInfo.setRecordValidationStats(validateAndOffsetAssignResult.recordValidationStats)
             if (config.messageTimestampType == TimestampType.LOG_APPEND_TIME)

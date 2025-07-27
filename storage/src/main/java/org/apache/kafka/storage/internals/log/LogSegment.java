@@ -264,8 +264,10 @@ public class LogSegment implements Closeable {
                 maxTimestampAndOffsetSoFar = new TimestampOffset(largestTimestampMs, shallowOffsetOfMaxTimestamp);
             }
             // append an entry to the index (if needed)
-            // 更新索引文件，索引文件的写入是通过 mmap 实现的
+            // 更新索引文件，索引文件的写入是通过 mmap 实现的，indexIntervalBytes默认值是4096，也就是最少4096个字节才写一次索引
             if (bytesSinceLastIndexEntry > indexIntervalBytes) {
+                // 注意看此时的physicalPosition， physicalPosition是records写入之前的物理位置，但是索引确实写入之后的位置
+                // 也就是offset其实存的是开始查找位置，offset索引文件里，key 对应的 value 是当前records开始写的位置
                 offsetIndex().append(largestOffset, physicalPosition);
                 timeIndex().maybeAppend(maxTimestampSoFar(), offsetOfMaxTimestampSoFar());
                 bytesSinceLastIndexEntry = 0;
@@ -274,6 +276,7 @@ public class LogSegment implements Closeable {
         }
     }
 
+    // 校验当前 offset 能否加入到当前segment的offset index文件中
     private void ensureOffsetInRange(long offset) throws IOException {
         if (!canConvertToRelativeOffset(offset))
             throw new LogSegmentOffsetOverflowException(this, offset);

@@ -794,7 +794,7 @@ class ReplicaManager(val config: KafkaConfig,
         }
 
       if (notYetVerifiedEntriesPerPartition.isEmpty || addPartitionsToTxnManager.isEmpty) {
-        // 默认情况走到该逻辑
+        // 默认情况走到该逻辑：非事务消息
         appendEntries(verifiedEntriesPerPartition, internalTopicsAllowed, origin, requiredAcks, verificationGuards.toMap,
           errorsPerPartition, recordValidationStatsCallback, timeout, responseCallback, delayedProduceLock, actionQueue)(requestLocal, Map.empty)
       } else {
@@ -1069,6 +1069,7 @@ class ReplicaManager(val config: KafkaConfig,
     // kafka 3.7 默认是 -1了，kafka2默认是1
     if (delayedProduceRequestRequired(requiredAcks, entriesPerPartition, initialAppendResults)) {
       // create delayed produce operation
+      // initialProduceStatus 保存了tp维度的 produceStatus
       val produceMetadata = ProduceMetadata(requiredAcks, initialProduceStatus)
       val delayedProduce = new DelayedProduce(timeoutMs, produceMetadata, this, responseCallback, delayedProduceLock)
 

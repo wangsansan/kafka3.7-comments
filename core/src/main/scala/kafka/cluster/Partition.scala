@@ -1095,9 +1095,11 @@ class Partition(val topicPartition: TopicPartition,
           def logEndOffsetString: ((Int, Long)) => String = {
             case (brokerId, logEndOffset) => s"broker $brokerId: $logEndOffset"
           }
-
+          // 获取到当前partition，除当前broker之外的其他isr
           val curInSyncReplicaObjects = (curMaximalIsr - localBrokerId).flatMap(getReplica)
+          // 获取isr的brokerId + LEO
           val replicaInfo = curInSyncReplicaObjects.map(replica => (replica.brokerId, replica.stateSnapshot.logEndOffset))
+          // 当前broker的 brokerId + LEO
           val localLogInfo = (localBrokerId, localLogOrException.logEndOffset)
           val (ackedReplicas, awaitingReplicas) = (replicaInfo + localLogInfo).partition { _._2 >= requiredOffset}
 
