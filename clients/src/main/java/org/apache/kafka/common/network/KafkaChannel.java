@@ -387,6 +387,7 @@ public class KafkaChannel implements AutoCloseable {
     public NetworkSend maybeCompleteSend() {
         if (send != null && send.completed()) {
             midWrite = false;
+            // 删除socketChannel上的写事件监听
             transportLayer.removeInterestOps(SelectionKey.OP_WRITE);
             NetworkSend result = send;
             send = null;
@@ -402,7 +403,9 @@ public class KafkaChannel implements AutoCloseable {
 
         long bytesReceived = receive(this.receive);
 
-        if (this.receive.requiredMemoryAmountKnown() && !this.receive.memoryAllocated() && isInMutableState()) {
+        if (this.receive.requiredMemoryAmountKnown()
+                && !this.receive.memoryAllocated()
+                && isInMutableState()) {
             //pool must be out of memory, mute ourselves.
             mute();
         }
@@ -455,6 +458,8 @@ public class KafkaChannel implements AutoCloseable {
 
     private long receive(NetworkReceive receive) throws IOException {
         try {
+            // 从java的 socketChannel 通道里，将数据读取到 KafkaChannel 的 receive 里
+            // 具体是receive的buffer里
             return receive.readFrom(transportLayer);
         } catch (SslAuthenticationException e) {
             // With TLSv1.3, post-handshake messages may throw SSLExceptions, which are

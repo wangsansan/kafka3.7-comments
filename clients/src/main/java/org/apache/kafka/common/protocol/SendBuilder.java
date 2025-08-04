@@ -219,6 +219,7 @@ public class SendBuilder implements Writable {
         apiMessage.addSize(messageSize, serializationCache, apiVersion);
 
         SendBuilder builder = new SendBuilder(messageSize.sizeExcludingZeroCopy() + 4);
+        // 前4个字节写入的是message的大小
         builder.writeInt(messageSize.totalSize());
         header.write(builder, serializationCache, headerVersion);
         apiMessage.write(builder, serializationCache, apiVersion);

@@ -58,6 +58,7 @@ public class NetworkReceive implements Receive {
 
     public NetworkReceive(int maxSize, String source, MemoryPool memoryPool) {
         this.source = source;
+        // 此处分配的是 HealByteBuffer，也就是在堆里分配的
         this.size = ByteBuffer.allocate(4);
         this.buffer = null;
         this.maxSize = maxSize;
@@ -80,30 +81,38 @@ public class NetworkReceive implements Receive {
 
     public long readFrom(ScatteringByteChannel channel) throws IOException {
         int read = 0;
+        // 主要是读取message的size，然后赋值给 requestedBufferSize
         if (size.hasRemaining()) {
+            // 将 channel 里的数据读取到当前的 size 里，因为 size 的大小只有4个字节，所以实际只读取了message的大小。
+            // 通过变量名也可窥见一二，size = message 的大小
             int bytesRead = channel.read(size);
             if (bytesRead < 0)
                 throw new EOFException();
             read += bytesRead;
+            // 由于初始 size 只有4个字节大小，所以此时如果是服务端接收到producer发的信息过来，大概率 size.hasRemaining() = false
             if (!size.hasRemaining()) {
                 size.rewind();
                 int receiveSize = size.getInt();
                 if (receiveSize < 0)
                     throw new InvalidReceiveException("Invalid receive (size = " + receiveSize + ")");
+                // server: maxSize = 100MB
                 if (maxSize != UNLIMITED && receiveSize > maxSize)
                     throw new InvalidReceiveException("Invalid receive (size = " + receiveSize + " larger than " + maxSize + ")");
+                // 按照此处代码的含义，也就是消息的前4个字节会放消息的长度，SendBuilder.buildSend 方法里可以看到逻辑，发送消息是 messageSize + messageData
                 requestedBufferSize = receiveSize; //may be 0 for some payloads (SASL)
                 if (receiveSize == 0) {
                     buffer = EMPTY_BUFFER;
                 }
             }
         }
+        // server：接受 producer 和 consumer 发送的消息，一定会走到该逻辑
         if (buffer == null && requestedBufferSize != -1) { //we know the size we want but havent been able to allocate it yet
             buffer = memoryPool.tryAllocate(requestedBufferSize);
             if (buffer == null)
                 log.trace("Broker low on memory - could not allocate buffer of size {} for source {}", requestedBufferSize, source);
         }
         if (buffer != null) {
+            // server：将client发的消息存到了buffer里
             int bytesRead = channel.read(buffer);
             if (bytesRead < 0)
                 throw new EOFException();

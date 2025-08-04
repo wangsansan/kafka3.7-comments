@@ -174,7 +174,13 @@ class SocketServer(val config: KafkaConfig,
   if (apiVersionManager.listenerType.equals(ListenerType.CONTROLLER)) {
     config.controllerListeners.foreach(createDataPlaneAcceptorAndProcessors)
   } else {
+    /**
+     * 由于listenerType是ZK，走此处逻辑
+     * 此时根据配置的 endpoint，设置了多个 acceptor
+     *
+     */
     config.controlPlaneListener.foreach(createControlPlaneAcceptorAndProcessor)
+    // 构建了 Acceptor 和 processor
     config.dataPlaneListeners.foreach(createDataPlaneAcceptorAndProcessors)
   }
 
@@ -229,6 +235,7 @@ class SocketServer(val config: KafkaConfig,
 
     info("Enabling request processing.")
     controlPlaneAcceptorOpt.foreach(chainAcceptorFuture)
+    // acceptor 线程启动，开始监听端口，等待连接
     dataPlaneAcceptors.values().forEach(chainAcceptorFuture)
     FutureUtils.chainFuture(CompletableFuture.allOf(authorizerFutures.values.toArray: _*),
         allAuthorizerFuturesComplete)
@@ -249,8 +256,10 @@ class SocketServer(val config: KafkaConfig,
     connectionQuotas.addListener(config, endpoint.listenerName)
     val isPrivilegedListener = controlPlaneRequestChannelOpt.isEmpty &&
       config.interBrokerListenerName == endpoint.listenerName
+    // acceptor
     val dataPlaneAcceptor = createDataPlaneAcceptor(endpoint, isPrivilegedListener, dataPlaneRequestChannel)
     config.addReconfigurable(dataPlaneAcceptor)
+    // 此处会进行 processor 的创建，但是创建之后是放到了requestChannel的processors里
     dataPlaneAcceptor.configure(parsedConfigs)
     dataPlaneAcceptors.put(endpoint, dataPlaneAcceptor)
     info(s"Created data-plane acceptor and processors for endpoint : ${endpoint.listenerName}")
@@ -637,10 +646,12 @@ private[kafka] abstract class Acceptor(val socketServer: SocketServer,
         throw new ClosedChannelException()
       }
       if (serverChannel == null) {
+        // 初始化 serverChanel
         serverChannel = openServerSocket(endPoint.host, endPoint.port, listenBacklogSize)
         debug(s"Opened endpoint ${endPoint.host}:${endPoint.port}")
       }
       debug(s"Starting processors for listener ${endPoint.listenerName}")
+      // 和 requestChannel 里的 processors 是同一批 processor
       processors.foreach(_.start())
       debug(s"Starting acceptor thread for listener ${endPoint.listenerName}")
       thread.start()
@@ -827,6 +838,7 @@ private[kafka] abstract class Acceptor(val socketServer: SocketServer,
     }
   }
 
+  // 第一次进来时，mayBlock = false
   private def assignNewConnection(socketChannel: SocketChannel, processor: Processor, mayBlock: Boolean): Boolean = {
     if (processor.accept(socketChannel, mayBlock, blockedPercentMeter)) {
       debug(s"Accepted connection from ${socketChannel.socket.getRemoteSocketAddress} on" +
@@ -845,6 +857,15 @@ private[kafka] abstract class Acceptor(val socketServer: SocketServer,
 
   def addProcessors(toCreate: Int): Unit = synchronized {
     val listenerName = endPoint.listenerName
+    // 默认情况下 securityProtocol 是 PLAINTEXT， 所以为了方便理解，我们以默认值来理解
+    /**
+     * 默认配置如下
+     * # 未指定协议，默认使用 PLAINTEXT
+     * listeners=:9092
+     *
+     * # 显式指定 PLAINTEXT 协议
+     * listeners=PLAINTEXT://:9092
+     */
     val securityProtocol = endPoint.securityProtocol
     val listenerProcessors = new ArrayBuffer[Processor]()
 
@@ -864,7 +885,7 @@ private[kafka] abstract class Acceptor(val socketServer: SocketServer,
     val name = s"${threadPrefix()}-kafka-network-thread-$nodeId-${endPoint.listenerName}-${endPoint.securityProtocol}-${id}"
     new Processor(id,
                   time,
-                  config.socketRequestMaxBytes,
+                  config.socketRequestMaxBytes,// 默认100MB，在KakfaConfig.scala文件中，这个变量后续在NetworkReceive中很重要，需要初始化
                   requestChannel,
                   connectionQuotas,
                   config.connectionsMaxIdleMs,
@@ -968,6 +989,7 @@ private[kafka] class Processor(
   private val expiredConnectionsKilledCountMetricName = metrics.metricName("expired-connections-killed-count", MetricsGroup, metricTags)
   metrics.addMetric(expiredConnectionsKilledCountMetricName, expiredConnectionsKilledCount)
 
+  // processor 中 selector 的创建；
   private[network] val selector = createSelector(
     ChannelBuilders.serverChannelBuilder(
       listenerName,
@@ -1068,7 +1090,7 @@ private[kafka] class Processor(
             // throttling delay has already passed by now.
             handleChannelMuteEvent(channelId, ChannelMuteEvent.RESPONSE_SENT)
             tryUnmuteChannel(channelId)
-
+          // produceRequest 和 fetchRequest 应该会走到这里
           case response: SendResponse =>
             sendResponse(response, response.responseSend)
           case response: CloseConnectionResponse =>
@@ -1122,6 +1144,7 @@ private[kafka] class Processor(
   }
 
   protected def parseRequestHeader(buffer: ByteBuffer): RequestHeader = {
+    // 读取数据里的 header
     val header = RequestHeader.parse(buffer)
     if (apiVersionManager.isApiEnabled(header.apiKey, header.apiVersion)) {
       header
@@ -1133,6 +1156,7 @@ private[kafka] class Processor(
   private def processCompletedReceives(): Unit = {
     selector.completedReceives.forEach { receive =>
       try {
+        // receive.source = kafkaChannel.id = connectionId
         openOrClosingChannel(receive.source) match {
           case Some(channel) =>
             val header = parseRequestHeader(receive.payload)
@@ -1147,6 +1171,7 @@ private[kafka] class Processor(
                 close(channel.id)
                 expiredConnectionsKilledCount.record(null, 1, 0)
               } else {
+                // produceRequest 和 fetchRequest 走到这里
                 val connectionId = receive.source
                 val context = new RequestContext(header, connectionId, channel.socketAddress,
                   channel.principal, listenerName, securityProtocol,
@@ -1165,7 +1190,9 @@ private[kafka] class Processor(
                       apiVersionsRequest.data.clientSoftwareVersion))
                   }
                 }
+                // 把封装的 Request 放到了 requestChannel里
                 requestChannel.sendRequest(req)
+                // 取消了该connection上读事件的监听
                 selector.mute(connectionId)
                 handleChannelMuteEvent(connectionId, ChannelMuteEvent.REQUEST_RECEIVED)
               }

@@ -337,6 +337,8 @@ public class Selector implements Selectable, AutoCloseable {
         try {
             KafkaChannel channel = channelBuilder.buildChannel(id, key, maxReceiveSize, memoryPool,
                 new SelectorChannelMetadataRegistry());
+            // 此处将 KafkaChannel attach到 SelectionKey 上，
+            // 等到 SelectionKey 被事件驱动之后，可以直接获取到该channel
             key.attach(channel);
             return channel;
         } catch (Exception e) {
@@ -469,11 +471,13 @@ public class Selector implements Selectable, AutoCloseable {
 
         /* check ready keys */
         long startSelect = time.nanoseconds();
+        // 1. 通过java原生的 selector 执行 poll 操作
         int numReadyKeys = select(timeout);
         long endSelect = time.nanoseconds();
         this.sensors.selectTime.record(endSelect - startSelect, time.milliseconds(), false);
 
         if (numReadyKeys > 0 || !immediatelyConnectedKeys.isEmpty() || dataInBuffers) {
+            // 2. 获取原生 selector select 到的 selectKeys
             Set<SelectionKey> readyKeys = this.nioSelector.selectedKeys();
 
             // Poll from channels that have buffered data (but nothing more from the underlying socket)
@@ -518,6 +522,7 @@ public class Selector implements Selectable, AutoCloseable {
                            boolean isImmediatelyConnected,
                            long currentTimeNanos) {
         for (SelectionKey key : determineHandlingOrder(selectionKeys)) {
+            // 获取到 selectKey 上的 kafkaChannel
             KafkaChannel channel = channel(key);
             long channelStartTimeNanos = recordTimePerConnection ? time.nanoseconds() : 0;
             boolean sendFailed = false;
@@ -580,13 +585,15 @@ public class Selector implements Selectable, AutoCloseable {
                 //if channel is ready and has bytes to read from socket or buffer, and has no
                 //previous completed receive then read from it
                 /**
-                 * 有可能之前发送的消息的ack回来了，需要记录一下
+                 * producer：有可能之前发送的消息的ack回来了，需要记录一下
+                 * server：read 事件处理逻辑也走到这里了
                  */
                 if (channel.ready() && (key.isReadable() || channel.hasBytesBuffered()) && !hasCompletedReceive(channel)
                         && !explicitlyMutedChannels.contains(channel)) {
+                    // 把读取到的数据存到了 selector 的 completedReceives 里了
                     attemptRead(channel);
                 }
-
+                // 默认情况下 channel.hasBytesBuffered() = false
                 if (channel.hasBytesBuffered() && !explicitlyMutedChannels.contains(channel)) {
                     //this channel has bytes enqueued in intermediary buffers that we could not read
                     //(possibly because no memory). it may be the case that the underlying socket will
@@ -695,7 +702,8 @@ public class Selector implements Selectable, AutoCloseable {
 
             NetworkReceive receive = channel.maybeCompleteReceive();
             if (receive != null) {
-                // 将读取到的数据暂存一下（消息ack信息），用来后续判断之前发送的消息是否成功
+                // producer：将读取到的数据暂存一下（消息ack信息），用来后续判断之前发送的消息是否成功
+                // server：暂存的就是可能是 producer 发过来的信息了
                 addToCompletedReceives(channel, receive, currentTimeMs);
             }
         }

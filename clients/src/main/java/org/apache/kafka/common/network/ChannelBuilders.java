@@ -183,6 +183,14 @@ public class ChannelBuilders {
                         apiVersionSupplier);
                 break;
             case PLAINTEXT:
+                // 默认会走到这里，以下是默认配置：
+                /**
+                 *# 未指定协议，默认使用 PLAINTEXT
+                 * listeners=:9092
+                 *
+                 * # 显式指定 PLAINTEXT 协议
+                 * listeners=PLAINTEXT://:9092
+                 */
                 channelBuilder = new PlaintextChannelBuilder(listenerName);
                 break;
             default:

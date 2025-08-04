@@ -105,6 +105,7 @@ object Defaults {
 
   val SocketSendBufferBytes: Int = 100 * 1024
   val SocketReceiveBufferBytes: Int = 100 * 1024
+  // 默认100MB
   val SocketRequestMaxBytes: Int = 100 * 1024 * 1024
   val SocketListenBacklogSize: Int = 50
   val MaxConnectionsPerIp: Int = Int.MaxValue

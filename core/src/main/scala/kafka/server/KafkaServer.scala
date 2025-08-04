@@ -385,6 +385,8 @@ class KafkaServer(
         /**
          * socketServer初始化的时候，实例化了 requestChannel 和 requestAcceptor
          *  数据请求（dataRequest） 和 控制请求（controlRequest）
+         *  此时的 apiVersionManager 的listenerType是ZK
+         *  SocketServer extends Acceptor，里面初始化了 nioSelector
          */
         socketServer = new SocketServer(config, metrics, time, credentialProvider, apiVersionManager)
 
@@ -633,6 +635,11 @@ class KafkaServer(
             }
           }
         }
+
+        /**
+         * 这里面 acceptor 初始化 + 开放端口，让客户端可以进行连接
+         * acceptor 线程启动
+         */
         socketServer.enableRequestProcessing(authorizerFutures)
         // Block here until all the authorizer futures are complete
         try {
