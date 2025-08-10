@@ -108,6 +108,7 @@ public class Selector implements Selectable, AutoCloseable {
     private boolean outOfMemory;
     private final List<NetworkSend> completedSends;
     private final LinkedHashMap<String, NetworkReceive> completedReceives;
+    // 服务端的该字段为空
     private final Set<SelectionKey> immediatelyConnectedKeys;
     private final Map<String, KafkaChannel> closingChannels;
     private Set<SelectionKey> keysWithBufferedRead;
@@ -663,6 +664,7 @@ public class Selector implements Selectable, AutoCloseable {
     void write(KafkaChannel channel) throws IOException {
         String nodeId = channel.id();
         long bytesSent = channel.write();
+        // 顺便把KafkaChannel上的send置为null
         NetworkSend send = channel.maybeCompleteSend();
         // We may complete the send with bytesSent < 1 if `TransportLayer.hasPendingWrites` was true and `channel.write()`
         // caused the pending writes to be written to the socket channel buffer
@@ -699,7 +701,7 @@ public class Selector implements Selectable, AutoCloseable {
             long currentTimeMs = time.milliseconds();
             sensors.recordBytesReceived(nodeId, bytesReceived, currentTimeMs);
             madeReadProgressLastPoll = true;
-
+            // 顺便把KafkaChannel上的 receive 置为null
             NetworkReceive receive = channel.maybeCompleteReceive();
             if (receive != null) {
                 // producer：将读取到的数据暂存一下（消息ack信息），用来后续判断之前发送的消息是否成功
