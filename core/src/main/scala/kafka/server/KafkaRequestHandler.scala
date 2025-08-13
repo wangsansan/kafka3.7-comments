@@ -154,7 +154,7 @@ class KafkaRequestHandler(
               originalRequest.callbackRequestCompleteTimeNanos = Some(time.nanoseconds())
             threadCurrentRequest.remove()
           }
-
+        // 从client接受到的数据，都会被封装成 RequestChannel.Request，见 kafka.network.Processor.processCompletedReceives
         case request: RequestChannel.Request =>
           try {
             request.requestDequeueTimeNanos = endTime
@@ -219,6 +219,10 @@ class KafkaRequestHandlerPool(
     createHandler(i)
   }
 
+  /**
+   * 创建 RequestHandler 线程，并运行
+   * @param id
+   */
   def createHandler(id: Int): Unit = synchronized {
     runnables += new KafkaRequestHandler(id, brokerId, aggregateIdleMeter, threadPoolSize, requestChannel, apis, time, nodeName)
     KafkaThread.daemon(logAndThreadNamePrefix + "-kafka-request-handler-" + id, runnables(id)).start()

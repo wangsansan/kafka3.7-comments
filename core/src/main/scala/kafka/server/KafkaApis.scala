@@ -182,6 +182,10 @@ class KafkaApis(val requestChannel: RequestChannel,
         throw new IllegalStateException(s"API ${request.header.apiKey} with version ${request.header.apiVersion} is not enabled")
       }
 
+      /**
+       * producer 发过来的 ProduceRequest 里的 apiKey 是 ApiKeys.PRODUCE
+       * consumer 发过来的 FetchRequest 里的apiKey 是 ApiKeys.FETCH
+       */
       request.header.apiKey match {
         case ApiKeys.PRODUCE => handleProduceRequest(request, requestLocal)
         case ApiKeys.FETCH => handleFetchRequest(request)
@@ -589,7 +593,7 @@ class KafkaApis(val requestChannel: RequestChannel,
    * Handle a produce request
    */
   def handleProduceRequest(request: RequestChannel.Request, requestLocal: RequestLocal): Unit = {
-    // RequestChannel的body方法，用于对 request 类型进行校验
+    // RequestChannel的body方法，用于对 request 类型进行校验， 校验成功，就返回该类型
     val produceRequest = request.body[ProduceRequest]
 
     if (RequestUtils.hasTransactionalRecords(produceRequest)) {
@@ -627,7 +631,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       else
         try {
           ProduceRequest.validateRecords(request.header.apiVersion, memoryRecords)
-          // Scala 对于Map的操作，真是简化啊，此处类似于 put(topicPartition, memoryRecords);
+          // scala 对于Map的操作，真是简化啊，此处类似于 put(topicPartition, memoryRecords);
           authorizedRequestInfo += (topicPartition -> memoryRecords)
         } catch {
           case e: ApiException =>
@@ -641,6 +645,7 @@ class KafkaApis(val requestChannel: RequestChannel,
     // https://issues.apache.org/jira/browse/KAFKA-10730
     @nowarn("cat=deprecation")
     def sendResponseCallback(responseStatus: Map[TopicPartition, PartitionResponse]): Unit = {
+      // 需要返回给client的数据，也就是数据处理结果
       val mergedResponseStatus = responseStatus ++ unauthorizedTopicResponses ++ nonExistingTopicResponses ++ invalidRequestResponses
       var errorInResponse = false
 
@@ -710,6 +715,9 @@ class KafkaApis(val requestChannel: RequestChannel,
           requestHelper.sendNoOpResponseExemptThrottle(request)
         }
       } else {
+        /**
+         * 注意此处，此时的回调函数便是找到对应的Processor，并往其 responseQueue 里塞一个RequestChannel.SendResponse
+         */
         requestChannel.sendResponse(request, new ProduceResponse(mergedResponseStatus.asJava, maxThrottleTimeMs, nodeEndpoints.values.toList.asJava), None)
       }
     }
@@ -723,17 +731,18 @@ class KafkaApis(val requestChannel: RequestChannel,
     if (authorizedRequestInfo.isEmpty)
       sendResponseCallback(Map.empty)
     else {
+      // 实际处理 ProduceRequest 的逻辑
       val internalTopicsAllowed = request.header.clientId == AdminUtils.ADMIN_CLIENT_ID
 
       // call the replica manager to append messages to the replicas
       replicaManager.appendRecords(
         timeout = produceRequest.timeout.toLong,
-        requiredAcks = produceRequest.acks,
+        requiredAcks = produceRequest.acks, // 请求传过来的 acks
         internalTopicsAllowed = internalTopicsAllowed,
         origin = AppendOrigin.CLIENT,
-        entriesPerPartition = authorizedRequestInfo,
+        entriesPerPartition = authorizedRequestInfo,// 数据在这儿
         requestLocal = requestLocal,
-        responseCallback = sendResponseCallback,
+        responseCallback = sendResponseCallback, // ProduceRequest处理完之后的回调函数
         recordValidationStatsCallback = processingStatsCallback,
         transactionalId = produceRequest.transactionalId()
       )

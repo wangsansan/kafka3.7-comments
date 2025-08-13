@@ -1177,6 +1177,7 @@ private[kafka] class Processor(
                   channel.principal, listenerName, securityProtocol,
                   channel.channelMetadataRegistry.clientInformation, isPrivilegedListener, channel.principalSerde)
 
+                // 此处将处理该请求的 Processor 封装到 RequestChannel.Request 中，后续执行回调函数的时候，可以找到该Processor
                 val req = new RequestChannel.Request(processor = id, context = context,
                   startTimeNanos = nowNanos, memoryPool, receive.payload, requestChannel.metrics, None)
 
@@ -1355,6 +1356,10 @@ private[kafka] class Processor(
     connId
   }
 
+  /**
+   * 将待处理的 response 放到 Processor 的 responseQueue 里，同时 wakeup
+   * @param response
+   */
   private[network] def enqueueResponse(response: RequestChannel.Response): Unit = {
     responseQueue.put(response)
     wakeup()

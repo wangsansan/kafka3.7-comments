@@ -149,6 +149,7 @@ object RequestChannel extends Logging {
           }
           request.context.buildResponseSend(envelopeResponse)
         case None =>
+          // produceRequest时，走该逻辑，见kafka.network.Processor.processCompletedReceives
           context.buildResponseSend(abstractResponse)
       }
     }
@@ -461,7 +462,9 @@ class RequestChannel(val queueSize: Int,
       // For a given request, these may happen in addition to one in the previous section, skip updating the metrics
       case _: StartThrottlingResponse | _: EndThrottlingResponse => ()
     }
-
+    /**
+     * 消息的回调逻辑，将 response 放到对应 processor 的 responseQueue 里
+     */
     val processor = processors.get(response.processor)
     // The processor may be null if it was shutdown. In this case, the connections
     // are closed, so the response is dropped.

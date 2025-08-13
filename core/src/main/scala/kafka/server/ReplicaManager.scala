@@ -783,9 +783,10 @@ class ReplicaManager(val config: KafkaConfig,
 
       val verificationGuards: mutable.Map[TopicPartition, VerificationGuard] = mutable.Map[TopicPartition, VerificationGuard]()
       val (verifiedEntriesPerPartition, notYetVerifiedEntriesPerPartition, errorsPerPartition) =
-        if (transactionalId == null || !config.transactionPartitionVerificationEnable)
+        if (transactionalId == null || !config.transactionPartitionVerificationEnable) {
+          // 这个结构体有点厉害，类似于 java Apache组件里的 Triple
           (entriesPerPartition, Map.empty[TopicPartition, MemoryRecords], Map.empty[TopicPartition, Errors])
-        else {
+        } else {
           val verifiedEntries = mutable.Map[TopicPartition, MemoryRecords]()
           val unverifiedEntries = mutable.Map[TopicPartition, MemoryRecords]()
           val errorEntries = mutable.Map[TopicPartition, Errors]()
