@@ -688,7 +688,7 @@ class ReplicaManager(val config: KafkaConfig,
   }
 
   def getPartitionOrException(topicPartition: TopicPartition): Partition = {
-    // 判断当前server broker 是否能够处理该 tp，能处理，就直接返回partition
+    // 判断当前server broker 是否能够处理该 tp，能处理，就直接返回 partition
     getPartitionOrError(topicPartition) match {
       case Left(Errors.KAFKA_STORAGE_ERROR) =>
         throw new KafkaStorageException(s"Partition $topicPartition is in an offline log directory")
@@ -767,12 +767,15 @@ class ReplicaManager(val config: KafkaConfig,
    * @param requestLocal                  container for the stateful instances scoped to this request
    * @param transactionalId               transactional ID if the request is from a producer and the producer is transactional
    * @param actionQueue                   the action queue to use. ReplicaManager#defaultActionQueue is used by default.
+   *
+   * scala 语言中， Unit 和 java中的void是一个含义，代表没有返回值
+   *  => 这个图标代表当前入参是一个函数，左边的是入参类型，右边的是返回值类型
    */
   def appendRecords(timeout: Long,
-                    requiredAcks: Short,
+                    requiredAcks: Short, // client端要的acks
                     internalTopicsAllowed: Boolean,
                     origin: AppendOrigin,
-                    entriesPerPartition: Map[TopicPartition, MemoryRecords],
+                    entriesPerPartition: Map[TopicPartition, MemoryRecords], // 要append的数据
                     responseCallback: Map[TopicPartition, PartitionResponse] => Unit,
                     delayedProduceLock: Option[Lock] = None,
                     recordValidationStatsCallback: Map[TopicPartition, RecordValidationStats] => Unit = _ => (),
@@ -782,9 +785,9 @@ class ReplicaManager(val config: KafkaConfig,
     if (isValidRequiredAcks(requiredAcks)) {
 
       val verificationGuards: mutable.Map[TopicPartition, VerificationGuard] = mutable.Map[TopicPartition, VerificationGuard]()
+      // 这个结构体有点厉害，类似于 java Apache组件里的 Triple
       val (verifiedEntriesPerPartition, notYetVerifiedEntriesPerPartition, errorsPerPartition) =
         if (transactionalId == null || !config.transactionPartitionVerificationEnable) {
-          // 这个结构体有点厉害，类似于 java Apache组件里的 Triple
           (entriesPerPartition, Map.empty[TopicPartition, MemoryRecords], Map.empty[TopicPartition, Errors])
         } else {
           val verifiedEntries = mutable.Map[TopicPartition, MemoryRecords]()
@@ -795,7 +798,7 @@ class ReplicaManager(val config: KafkaConfig,
         }
 
       if (notYetVerifiedEntriesPerPartition.isEmpty || addPartitionsToTxnManager.isEmpty) {
-        // 默认情况走到该逻辑：非事务消息
+        // 默认情况走到该逻辑：非事务消息；verifiedEntriesPerPartition = entriesPerPartition
         appendEntries(verifiedEntriesPerPartition, internalTopicsAllowed, origin, requiredAcks, verificationGuards.toMap,
           errorsPerPartition, recordValidationStatsCallback, timeout, responseCallback, delayedProduceLock, actionQueue)(requestLocal, Map.empty)
       } else {
@@ -842,6 +845,7 @@ class ReplicaManager(val config: KafkaConfig,
   /*
    * Note: This method can be used as a callback in a different request thread. Ensure that correct RequestLocal
    * is passed when executing this method. Accessing non-thread-safe data structures should be avoided if possible.
+   * 这种方法入参是scala语言特有的多参数列表传参，传了两个参数列表
    */
   private def appendEntries(allEntries: Map[TopicPartition, MemoryRecords],
                             internalTopicsAllowed: Boolean,
@@ -856,7 +860,7 @@ class ReplicaManager(val config: KafkaConfig,
                             actionQueue: ActionQueue)
                            (requestLocal: RequestLocal, unverifiedEntries: Map[TopicPartition, Errors]): Unit = {
     val sTime = time.milliseconds
-    // 重新定义变量
+    // 重新定义变量，通常情况下unverifiedEntries是个empty的map
     val verifiedEntries =
       if (unverifiedEntries.isEmpty)
         allEntries
@@ -865,7 +869,7 @@ class ReplicaManager(val config: KafkaConfig,
           !unverifiedEntries.contains(tp)
         }
 
-    // 将 msg 写入到当前的 Log 里
+    // 将 msg 写入到当前的 Log 里：发到当前的node的数据，一定是因为当前node是该 partition 的 leader
     val localProduceResults = appendToLocalLog(internalTopicsAllowed = internalTopicsAllowed,
       origin, verifiedEntries, requiredAcks, requestLocal, verificationGuards.toMap)
     debug("Produce to local log in %d ms".format(time.milliseconds - sTime))

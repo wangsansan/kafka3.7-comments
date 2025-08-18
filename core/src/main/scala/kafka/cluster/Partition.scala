@@ -1149,11 +1149,13 @@ class Partition(val topicPartition: TopicPartition,
    * Note There is no need to acquire the leaderIsrUpdate lock here since all callers of this private API acquire that lock
    *
    * @return true if the HW was incremented, and false otherwise.
+   * 因为更新了LEO，所以才进入该逻辑，LEO的更新可能会触发HW的更新
    */
   private def maybeIncrementLeaderHW(leaderLog: UnifiedLog, currentTimeMs: Long = time.milliseconds): Boolean = {
     /*
      * 默认情况下，isUnderMinIsr = false：代表当前 isr 的 size >= 1
      * 为true：代表当前 isr 的 size < 1
+     * isUnderMinIsr ：是否小于最小isr个数
      */
     if (isUnderMinIsr) {
       trace(s"Not increasing HWM because partition is under min ISR(ISR=${partitionState.isr}")
@@ -1164,6 +1166,8 @@ class Partition(val topicPartition: TopicPartition,
     val leaderLogEndOffset = leaderLog.logEndOffsetMetadata
     // 新HW默认为leader的LEO
     var newHighWatermark = leaderLogEndOffset
+    // 获取当前partition的其他replica的 state快照，对比下大家的LEO，选出最小的LEO作为HW
+    // 不过我觉得leader的LEO应该都是比follower大的，所以此处leader的LEO增大，触发HW更新的概率应该很小
     remoteReplicasMap.values.foreach { replica =>
       val replicaState = replica.stateSnapshot
 
@@ -1365,7 +1369,7 @@ class Partition(val topicPartition: TopicPartition,
     val (info, leaderHWIncremented) = inReadLock(leaderIsrUpdateLock) {
       leaderLogIfLocal match {
         case Some(leaderLog) =>
-          // 获取最小 isr 个数
+          // 获取最小 isr 个数，默认值是 1
           val minIsr = effectiveMinIsr(leaderLog)
           // 获取当前 isr 个数
           val inSyncSize = partitionState.isr.size
