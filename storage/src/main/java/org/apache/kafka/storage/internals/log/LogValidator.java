@@ -155,11 +155,12 @@ public class LogValidator {
                                                              MetricsRecorder metricsRecorder,
                                                              BufferSupplier bufferSupplier) {
         if (sourceCompression == CompressionType.NONE && targetCompression == CompressionType.NONE) {
-            // check the magic value
+            // check the magic value，高版本Kafka，此时toMagic都是2
             if (!records.hasMatchingMagic(toMagic))
                 return convertAndAssignOffsetsNonCompressed(offsetCounter, metricsRecorder);
             else
                 // Do in-place validation, offset assignment and maybe set timestamp
+                // 默认会走进该分支
                 return assignOffsetsNonCompressed(offsetCounter, metricsRecorder);
         } else
             return validateMessagesAndAssignOffsetsCompressed(offsetCounter, metricsRecorder, bufferSupplier);
@@ -176,6 +177,7 @@ public class LogValidator {
         MutableRecordBatch batch = batchIterator.next();
 
         // if the format is v2 and beyond, or if the messages are compressed, we should check there's only one batch.
+        // 高版本的Kafka，producer发消息，每次每个partition只发送一个batch，具体逻辑见：RecordAccumulator.drainBatchesForOneNode
         if (batch.magic() >= RecordBatch.MAGIC_VALUE_V2 || sourceCompression != CompressionType.NONE) {
             if (batchIterator.hasNext())
                 throw new InvalidRecordException("Compressed outer record has more than one batch");
@@ -241,12 +243,13 @@ public class LogValidator {
     public ValidationResult assignOffsetsNonCompressed(LongRef offsetCounter,
                                                        MetricsRecorder metricsRecorder) {
         long now = time.milliseconds();
+        // 当前这批 records
         long maxTimestamp = RecordBatch.NO_TIMESTAMP;
         long offsetOfMaxTimestamp = -1L;
         long initialOffset = offsetCounter.value;
 
         RecordBatch firstBatch = getFirstBatchAndMaybeValidateNoMoreBatches(records, CompressionType.NONE);
-
+        // 高版本的records，此时的 batches 里实际只有一个 batch
         for (MutableRecordBatch batch : records.batches()) {
             validateBatch(topicPartition, firstBatch, batch, origin, toMagic, metricsRecorder);
 

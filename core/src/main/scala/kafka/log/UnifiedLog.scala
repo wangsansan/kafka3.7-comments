@@ -66,6 +66,55 @@ import scala.jdk.CollectionConverters._
  * NOTE: this class handles state and behavior specific to tiered segments as well as any behavior combining both tiered
  * and local segments. The state and behavior specific to local segments are handled by the encapsulated LocalLog instance.
  *
+ * 在 Kafka 源码中，UnifiedLog类是日志存储层的核心组件，主要负责管理 Kafka 分区（Partition）的日志数据，包括日志的写入、读取、滚动、清理、恢复等核心操作。它是 Kafka 日志存储逻辑的统一实现，因此得名 “UnifiedLog”（统一日志）。
+ * 核心作用详解
+ * 日志数据的持久化存储
+ * UnifiedLog管理分区日志的物理存储，将生产者发送的消息（Record）持久化到磁盘。Kafka 的日志以分段（Segment）形式存储（每个分段对应一个日志文件和一个索引文件），UnifiedLog负责维护这些分段的创建、滚动（当分段大小或时间达到阈值时，创建新分段）和删除。
+ * 日志读写的核心逻辑
+ * 写入：处理生产者的消息写入请求，将消息追加到当前活跃的日志分段，并更新索引信息。
+ * 读取：处理消费者或副本的消息读取请求，根据偏移量（Offset）定位到对应的日志分段，从文件中读取数据并返回。
+ * 日志清理与保留策略
+ * 实现 Kafka 的日志保留机制（如基于时间、大小的清理策略）和日志压缩（Log Compaction）策略。UnifiedLog会定期检查并删除过期或满足清理条件的日志分段，以控制磁盘占用。
+ * 副本同步与数据一致性
+ * 在 Kafka 的副本机制中，UnifiedLog负责管理分区的日志数据，确保 follower 副本能通过复制（Replication）机制与 leader 副本的日志保持一致。它会处理来自其他副本的同步请求，提供日志数据的读取接口。
+ * 日志恢复与故障处理
+ * 当 Kafka broker 重启时，UnifiedLog负责加载磁盘上的日志分段，恢复日志的元数据（如当前最大偏移量、活跃分段等），确保日志状态的一致性，避免数据丢失或损坏。
+ * 维护日志元数据
+ * 管理日志的关键元数据，如当前最大偏移量、日志起始偏移量、分段信息、水印（Watermark）等，为分区的正常运行提供基础数据支持。
+ * 与其他组件的关系
+ * UnifiedLog是分区（Partition）的核心依赖，每个分区对应一个UnifiedLog实例。
+ * 它依赖LogSegment类管理单个日志分段的具体读写和索引操作，自身则负责多个分段的全局管理。
+ * 与日志清理器（LogCleaner）、副本管理器（ReplicaManager）等组件交互，协同完成日志的清理和副本同步。
+ * 总之，UnifiedLog是 Kafka 日志存储的 “总管”，封装了日志从写入到删除的全生命周期管理，是保证 Kafka 高可靠性、高吞吐量的核心组件之一。
+ * ┌─────────────────────────────────────────────────────────────────┐
+ * │                        外部触发/依赖                               │
+ * │  (生产者写入、消费者读取、副本同步、Broker 启动/故障、定时任务)          │
+ * └───────────────────────────────┬─────────────────────────────────┘
+ * ▼
+ * ┌─────────────────────────────────────────────────────────────────┐
+ * │                        UnifiedLog (核心日志管理器)                 │
+ * ├─────────────────────────────────────────────────────────────────┤
+ * │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐        │
+ * │  │  日志持久化     │  │   日志读写     │  │  日志分段管理    │        │
+ * │  │  - 消息追加到磁盘  │    - 处理写入请求  │  - 分段创建/滚动          │
+ * │  │  - 同步索引信息    │    - 处理读取请求  │  - 分段删除              │
+ * │  └───────────────┘  └───────────────┘  └───────────────┘        │
+ * │                                                                 │
+ * │  ┌───────────────┐  ┌───────────────┐  ┌───────────────┐        │
+ * │  │  日志清理/压缩 │   │  副本同步支持   │  │  故障恢复       │        │
+ * │  │  - 按策略清理过期分段  - 提供副本同步数据    - Broker 重启恢复      │
+ * │  │  - 执行日志压缩       - 维护同步状态        - 修复数据一致性        │
+ * │  └───────────────┘  └───────────────┘  └───────────────┘        │
+ * └───────────────────────────────┬─────────────────────────────────┘
+ * ▼
+ * ┌─────────────────────────────────────────────────────────────────┐
+ * │                        输出/结果                                  │
+ * │  - 持久化的日志数据（磁盘文件）                                      │
+ * │  - 响应读写请求（返回消息/确认写入）                                  │
+ * │  - 维护的日志元数据（偏移量、分段信息、水印等）                         │
+ * │  - 确保分区数据一致性和可用性                                        │
+ * └─────────────────────────────────────────────────────────────────┘
+ *
  * @param logStartOffset The earliest offset allowed to be exposed to kafka client.
  *                       The logStartOffset can be updated by :
  *                       - user's DeleteRecordsRequest
@@ -772,6 +821,12 @@ class UnifiedLog(@volatile var logStartOffset: Long,
     // This will ensure that any log data can be recovered with the correct topic ID in the case of failure.
     maybeFlushMetadataFile()
 
+    /**
+     * validateAndAssignOffsets
+     * - true：不要求batch是单调递增的：当 producer 发过来的消息，被 partition leader append的时候是true
+     * - false：要求batch是单调递增的：当 appendAsFollower 的时候，是false
+     * - 由于高版本的Kafka， batch只有一个，所以此处校验比较容易通过
+     */
     val appendInfo = analyzeAndValidateRecords(records, origin, ignoreRecordSize, !validateAndAssignOffsets, leaderEpoch)
 
     // return if we have no valid messages or if this is a duplicate of the last appended entry
@@ -795,14 +850,15 @@ class UnifiedLog(@volatile var logStartOffset: Long,
             appendInfo.setFirstOffset(offset.value)
             // 校验
             val validateAndOffsetAssignResult = try {
+              // 默认情况下，此时的targetCompression = NONE
               val targetCompression = BrokerCompressionType.forName(config.compressionType).targetCompressionType(appendInfo.sourceCompression)
               val validator = new LogValidator(validRecords,
                 topicPartition,
                 time,
-                appendInfo.sourceCompression,
-                targetCompression,
+                appendInfo.sourceCompression, // 此时是 NONE
+                targetCompression, // 默认也是NONE
                 config.compact,
-                config.recordVersion.value,
+                config.recordVersion.value, // 高版本Kafka此处都是2
                 config.messageTimestampType,
                 config.messageTimestampBeforeMaxMs,
                 config.messageTimestampAfterMaxMs,
@@ -1135,6 +1191,9 @@ class UnifiedLog(@volatile var logStartOffset: Long,
     var readFirstMessage = false
     var lastOffsetOfFirstBatch = -1L
 
+    /**
+     *  由于同一个tp，producer此时只会发一个batch过来，所以下面的多数逻辑多数是为了兼容历史版本写的
+      */
     records.batches.forEach { batch =>
       if (origin == AppendOrigin.RAFT_LEADER && batch.partitionLeaderEpoch != leaderEpoch) {
         throw new InvalidRecordException("Append from Raft leader did not set the batch epoch correctly")
@@ -1150,6 +1209,10 @@ class UnifiedLog(@volatile var logStartOffset: Long,
       // When appending to the leader, we will update LogAppendInfo.baseOffset with the correct value. In the follower
       // case, validation will be more lenient.
       // Also indicate whether we have the accurate first offset or not
+      /**
+       * 此处是为了记录 firstOffset 和 lastOffsetOfFirstBatch
+       * 只有第一次循环时，readFirstMessage = false会进入，所以这个代码块只会执行一次
+       */
       if (!readFirstMessage) {
         if (batch.magic >= RecordBatch.MAGIC_VALUE_V2)
           firstOffset = batch.baseOffset
@@ -1158,6 +1221,10 @@ class UnifiedLog(@volatile var logStartOffset: Long,
       }
 
       // check that offsets are monotonically increasing
+      /**
+       * 校验 offsets 是不是单调递增的，理论上递增的话，batch.lastOffset 应该是越来越大
+       * 不是递增的，可能的情况是在消息发送过程中，server端的partition更换过leader
+       */
       if (lastOffset >= batch.lastOffset)
         monotonic = false
 
@@ -1180,6 +1247,10 @@ class UnifiedLog(@volatile var logStartOffset: Long,
         throw new CorruptRecordException(s"Record is corrupt (stored crc = ${batch.checksum()}) in topic partition $topicPartition.")
       }
 
+      /**
+       * 记录最大时间戳和最大时间戳对应的offset，后续更新时间戳索引文件使用
+       * timestamp.index
+       */
       if (batch.maxTimestamp > maxTimestamp) {
         maxTimestamp = batch.maxTimestamp
         offsetOfMaxTimestamp = lastOffset
