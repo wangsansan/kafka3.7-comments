@@ -110,6 +110,7 @@ abstract class DelayedOperation(delayMs: Long,
   private[server] def safeTryCompleteOrElse(f: => Unit): Boolean = inLock(lock) {
     if (tryComplete()) true
     else {
+      // 注意此处的f，类似与java的函数接口，都是为了执行参数传递进来的代码逻辑
       f
       // last completion check
       tryComplete()

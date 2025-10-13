@@ -895,6 +895,7 @@ class ReplicaManager(val config: KafkaConfig,
     }
 
     val allResults = localProduceResults ++ errorResults
+    // 获取 logAppend 之后的状态，也就是一些offset
     val produceStatus = buildProducePartitionStatus(allResults)
 
     addCompletePurgatoryAction(actionQueue, allResults)
@@ -948,11 +949,13 @@ class ReplicaManager(val config: KafkaConfig,
     }
   }
 
+  // 根据 logAppend 结果封装 produceStatus
   private def buildProducePartitionStatus(
     results: Map[TopicPartition, LogAppendResult]
   ): Map[TopicPartition, ProducePartitionStatus] = {
     results.map { case (topicPartition, result) =>
       topicPartition -> ProducePartitionStatus(
+        // result.info.lastOffset + 1 应该是LEO
         result.info.lastOffset + 1, // required offset
         new PartitionResponse(
           result.error,
@@ -1531,12 +1534,13 @@ class ReplicaManager(val config: KafkaConfig,
     if (traceEnabled)
       trace(s"Append [$entriesPerPartition] to local log")
 
+    // 注意此处，基于每个 partition，进行各自的 append 逻辑
     entriesPerPartition.map { case (topicPartition, records) =>
       brokerTopicStats.topicStats(topicPartition.topic).totalProduceRequestRate.mark()
       brokerTopicStats.allTopicsStats.totalProduceRequestRate.mark()
 
       // reject appending to internal topics if it is not allowed
-      // internal topics 是指 offset、cluster status等的内部topic
+      // internal topics 是指 保存offset、cluster status等的内部topic
       if (Topic.isInternal(topicPartition.topic) && !internalTopicsAllowed) {
         (topicPartition, LogAppendResult(
           LogAppendInfo.UNKNOWN_LOG_APPEND_INFO,
@@ -1544,6 +1548,7 @@ class ReplicaManager(val config: KafkaConfig,
           hasCustomErrorMessage = false))
       } else {
         try {
+          // 当前Server broker 有多个topic partition，所以需要根据发过来的消息确认下该topicPartition，当前broker能否处理
           val partition = getPartitionOrException(topicPartition)
           // 更新segment日志和索引，maybe update HW
           val info = partition.appendRecordsToLeader(records, origin, requiredAcks, requestLocal,

@@ -367,8 +367,14 @@ class UnifiedLog(@volatile var logStartOffset: Long,
 
       // Ensure that the high watermark increases monotonically. We also update the high watermark when the new
       // offset metadata is on a newer segment, which occurs whenever the log is rolled to a new segment.
-      if (oldHighWatermark.messageOffset < newHighWatermark.messageOffset ||
-        (oldHighWatermark.messageOffset == newHighWatermark.messageOffset && oldHighWatermark.onOlderSegment(newHighWatermark))) {
+      /**
+       * 1. 如果在同一个 segment，那么就判断 old的offset是否小于new的segment的offset
+       * 2. 如果old的offset等于new的segment的offset，那就判断是否new的是一个新的segment
+       *    2.1 譬如刚roll出来一个新的segment，所以新segment的offset的起点其实是等于旧segment的结尾点的
+       */
+      if (oldHighWatermark.messageOffset < newHighWatermark.messageOffset
+          || (oldHighWatermark.messageOffset == newHighWatermark.messageOffset
+              && oldHighWatermark.onOlderSegment(newHighWatermark))) {
         // 更新高水位
         updateHighWatermarkMetadata(newHighWatermark)
         Some(oldHighWatermark)
@@ -407,6 +413,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
     localLog.checkIfMemoryMappedBufferClosed()
 
     val offsetMetadata = highWatermarkMetadata
+    // 此处大概率是false
     if (offsetMetadata.messageOffsetOnly) {
       lock.synchronized {
         val fullOffset = convertToOffsetMetadataOrThrow(highWatermark)
@@ -859,14 +866,18 @@ class UnifiedLog(@volatile var logStartOffset: Long,
                 targetCompression, // 默认也是NONE
                 config.compact,
                 config.recordVersion.value, // 高版本Kafka此处都是2
-                config.messageTimestampType,
+                config.messageTimestampType,// default是 createTime
                 config.messageTimestampBeforeMaxMs,
                 config.messageTimestampAfterMaxMs,
                 leaderEpoch,
                 origin,
                 interBrokerProtocolVersion
               )
-              // 这个方法里会对offset的value进行递增，相当于记录了当前的records -> batch -> record的数量，每个record -> LEO + 1
+              /**
+               * 这个方法里会对offset的value进行递增，相当于记录了当前的records -> batch -> record的数量，每个record -> LEO + 1
+               * 实际上由于每个records里只有一个batch，所以其实还好
+               * 实际计算了当前最大时间戳+最大offset+records里record的数量
+               */
               validator.validateMessagesAndAssignOffsets(offset,
                 validatorMetricsRecorder,
                 requestLocal.getOrElse(throw new IllegalArgumentException(
@@ -881,9 +892,13 @@ class UnifiedLog(@volatile var logStartOffset: Long,
             validRecords = validateAndOffsetAssignResult.validatedRecords
             appendInfo.setMaxTimestamp(validateAndOffsetAssignResult.maxTimestampMs)
             appendInfo.setOffsetOfMaxTimestamp(validateAndOffsetAssignResult.shallowOffsetOfMaxTimestampMs)
-            // 此时offset已经是更新过的，所以appendInfo的lastOffset-firstOffset + 1，就是本次写入的record的数量
+            /**
+             * 此时offset已经是更新过的，所以appendInfo的lastOffset-firstOffset + 1，就是本次写入的record的数量
+             * offset.value - 1 = maxOffset；所以此时 lastOffset = offsetOfMaxTimestamp
+             */
             appendInfo.setLastOffset(offset.value - 1)
             appendInfo.setRecordValidationStats(validateAndOffsetAssignResult.recordValidationStats)
+            // 默认是CreateTime
             if (config.messageTimestampType == TimestampType.LOG_APPEND_TIME)
               appendInfo.setLogAppendTime(validateAndOffsetAssignResult.logAppendTimeMs)
 
@@ -1708,7 +1723,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
 
     val maxTimestampInMessages = appendInfo.maxTimestamp
     val maxOffsetInMessages = appendInfo.lastOffset
-
+    // 非压缩消息的情况下，config.maxSegmentMs默认值是7天
     if (segment.shouldRoll(new RollParams(config.maxSegmentMs, config.segmentSize, appendInfo.maxTimestamp, appendInfo.lastOffset, messagesSize, now))) {
       debug(s"Rolling new log segment (log_size = ${segment.size}/${config.segmentSize}}, " +
         s"offset_index_size = ${segment.offsetIndex.entries}/${segment.offsetIndex.maxEntries}, " +
@@ -1743,6 +1758,8 @@ class UnifiedLog(@volatile var logStartOffset: Long,
    * or localLog.logEndOffset otherwise. This will trim the index to the exact size of the number of entries
    * it currently contains.
    * 滚动一个新的segment，并返回最新的segment
+   * 1. 注意加了锁
+   *
    *
    * @return The newly rolled segment
    */

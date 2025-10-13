@@ -498,16 +498,18 @@ class LocalLog(@volatile private var _dir: File,
           warn(s"Newly rolled segment file ${file.getAbsolutePath} already exists; deleting it first")
           Files.delete(file.toPath)
         }
-
+        // 更新下timestamp索引文件，然后处理下两个index文件，同时log截取目前已经写入的数据
         segments.lastSegment.ifPresent(_.onBecomeInactiveSegment())
       }
 
+      // 根据 newOffset，创建新的log和offset的index、timestamp的index，当然也有事务的index
       val newSegment = LogSegment.open(dir,
         newOffset,
         config,
         time,
         config.initFileSize,
         config.preallocate)
+      // 将新的 segment 加到了 segments 的最后一个了，那么后续调用 segments.activeSegment 就会返回该新的segment了
       segments.add(newSegment)
 
       // We need to update the segment base offset and append position data of the metadata when log rolls.

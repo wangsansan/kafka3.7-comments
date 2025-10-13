@@ -52,6 +52,7 @@ import java.util.Optional;
  */
 public class OffsetIndex extends AbstractIndex {
     private static final Logger log = LoggerFactory.getLogger(OffsetIndex.class);
+    // 8 字节（4 字节相对 offset + 4 字节物理偏移）
     private static final int ENTRY_SIZE = 8;
 
     /* the last offset in the index */

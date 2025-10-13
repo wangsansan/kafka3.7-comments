@@ -280,7 +280,7 @@ case class CommittedPartitionState(
  *    executing maybeReplaceCurrentWithFutureReplica() to replace follower replica with the future replica.
  */
 class Partition(val topicPartition: TopicPartition,
-                val replicaLagTimeMaxMs: Long,
+                val replicaLagTimeMaxMs: Long, // 默认是30秒
                 interBrokerProtocolVersion: MetadataVersion,
                 localBrokerId: Int,
                 localBrokerEpochSupplier: () => Long,
@@ -1042,6 +1042,12 @@ class Partition(val topicPartition: TopicPartition,
     }
   }
 
+  /**
+   * 判断该 follower replica 还是否参与决策
+   * 分为 kRaft 模式和 Zookeeper 模式，Zookeeper模式只需要判断节点是否存活着即可
+   * @param followerReplicaId
+   * @return
+   */
   private def isReplicaIsrEligible(followerReplicaId: Int): Boolean = {
     metadataCache match {
       // In KRaft mode, only a replica which meets all of the following requirements is allowed to join the ISR.
@@ -1171,17 +1177,22 @@ class Partition(val topicPartition: TopicPartition,
     remoteReplicasMap.values.foreach { replica =>
       val replicaState = replica.stateSnapshot
 
+      // 假设，我们的副本都是健康存活着的，那么 shouldWaitForReplicaToJoinIsr 大概率是 true
       def shouldWaitForReplicaToJoinIsr: Boolean = {
+        /**
+         * 1. 如果 该replica 距离上次同步小于 replicaLagTimeMaxMs（30s），也认为该replica caughtUp 了
+         * 2. Zookeeper模式下，只要该replica活着，就 isReplicaIsrEligible = true
+          */
         replicaState.isCaughtUp(leaderLogEndOffset.messageOffset, currentTimeMs, replicaLagTimeMaxMs) &&
         isReplicaIsrEligible(replica.brokerId)
       }
 
       // 由于newHighWatermark 在更新，所以当循环走完，newHighWatermark = 所有 replica 的min(LEO)
       // Note here we are using the "maximal", see explanation above
-      if (replicaState.logEndOffsetMetadata.messageOffset < newHighWatermark.messageOffset &&
-          (partitionState.maximalIsr.contains(replica.brokerId) || shouldWaitForReplicaToJoinIsr)
-      ) {
-        newHighWatermark = replicaState.logEndOffsetMetadata
+      if (replicaState.logEndOffsetMetadata.messageOffset < newHighWatermark.messageOffset
+        && (partitionState.maximalIsr.contains(replica.brokerId)
+        || shouldWaitForReplicaToJoinIsr)) {
+          newHighWatermark = replicaState.logEndOffsetMetadata
       }
     }
 

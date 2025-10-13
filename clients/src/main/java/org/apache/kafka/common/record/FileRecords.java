@@ -44,6 +44,7 @@ public class FileRecords extends AbstractRecords implements Closeable {
     private final int start;
     private final int end;
 
+    // 存储的是当前file可去读的batches，由于每个partition的log是分开存的，所以此处batches里存的就是producer发送过来的batches
     private final Iterable<FileLogInputStream.FileChannelRecordBatch> batches;
 
     // mutable state
@@ -187,7 +188,7 @@ public class FileRecords extends AbstractRecords implements Closeable {
         if (records.sizeInBytes() > Integer.MAX_VALUE - size.get())
             throw new IllegalArgumentException("Append of size " + records.sizeInBytes() +
                     " bytes is too large for segment with current file position at " + size.get());
-
+        // 传说中的顺序写日志
         int written = records.writeFullyTo(channel);
         size.getAndAdd(written);
         return written;

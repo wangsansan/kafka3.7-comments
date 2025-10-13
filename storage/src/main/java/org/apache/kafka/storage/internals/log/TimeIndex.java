@@ -52,6 +52,7 @@ import java.nio.MappedByteBuffer;
  */
 public class TimeIndex extends AbstractIndex {
     private static final Logger log = LoggerFactory.getLogger(TimeIndex.class);
+    // 12 字节（8 字节时间戳 + 4 字节相对 offset）
     private static final int ENTRY_SIZE = 12;
 
     private volatile TimestampOffset lastEntry;
@@ -120,6 +121,7 @@ public class TimeIndex extends AbstractIndex {
     // We override the full check to reserve the last time index entry slot for the on roll call.
     @Override
     public boolean isFull() {
+        // maxEntries() 受index大小控制，默认是10MB
         return entries() >= maxEntries() - 1;
     }
 

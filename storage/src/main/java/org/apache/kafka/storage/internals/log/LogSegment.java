@@ -166,7 +166,19 @@ public class LogSegment implements Closeable {
         return txnIndex;
     }
 
+    /**
+     * 1. 当前 segment 剩余空间不够放 message(所有的records)：默认segment大小是1G
+     * 2. 消息发送间隔时间达到7天
+     * 3. offset索引文件满了：不太现实，10MB的segment文件
+     * 4. timestamp索引文件满了：不太现实，10MB的segment文件
+     * 5. 当前offset切换为相对offset之后，超过了Integer的最大值
+     * 综上，1，3，4的概率会比较大
+     * @param rollParams
+     * @return
+     * @throws IOException
+     */
     public boolean shouldRoll(RollParams rollParams) throws IOException {
+        // rollJitterMs 默认等于0，非压缩消息的情况下，rollParams.maxSegmentMs默认值是7天
         boolean reachedRollMs = timeWaitedForRoll(rollParams.now, rollParams.maxTimestampInMessages) > rollParams.maxSegmentMs - rollJitterMs;
         int size = size();
         return size > rollParams.maxSegmentBytes - rollParams.messagesSize ||
@@ -225,6 +237,7 @@ public class LogSegment implements Closeable {
 
     /**
      * checks that the argument offset can be represented as an integer offset relative to the baseOffset.
+     * 校验offset有没有超过int的最大值，超过了就return false
      */
     private boolean canConvertToRelativeOffset(long offset) throws IOException {
         return offsetIndex().canAppendOffset(offset);
@@ -256,7 +269,7 @@ public class LogSegment implements Closeable {
             ensureOffsetInRange(largestOffset);
 
             // append the messages
-            // 写入数据到 segment的日志文件，并不立马进行flush
+            // 写入数据到 segment的日志文件，并不立马进行flush，交给操作系统的flush机制进行
             long appendedBytes = log.append(records);
             LOGGER.trace("Appended {} to {} at end offset {}", appendedBytes, log.file(), largestOffset);
             // Update the in memory max timestamp and corresponding offset.
@@ -266,7 +279,7 @@ public class LogSegment implements Closeable {
             // append an entry to the index (if needed)
             // 更新索引文件，索引文件的写入是通过 mmap 实现的，indexIntervalBytes默认值是4096，也就是最少4096个字节才写一次索引
             if (bytesSinceLastIndexEntry > indexIntervalBytes) {
-                // 注意看此时的physicalPosition， physicalPosition是records写入之前的物理位置，但是索引确实写入之后的位置
+                // 注意看此时的physicalPosition， physicalPosition是records写入之前的物理位置，但是下标index却是写入之后的位置
                 // 也就是offset其实存的是开始查找位置，offset索引文件里，key 对应的 value 是当前records开始写的位置
                 offsetIndex().append(largestOffset, physicalPosition);
                 timeIndex().maybeAppend(maxTimestampSoFar(), offsetOfMaxTimestampSoFar());
@@ -694,6 +707,7 @@ public class LogSegment implements Closeable {
     /**
      * If not previously loaded,
      * load the timestamp of the first message into memory.
+     * fistBatch的最大时间戳
      */
     private void loadFirstBatchTimestamp() {
         if (!rollingBasedTimestamp.isPresent()) {
@@ -714,6 +728,10 @@ public class LogSegment implements Closeable {
      */
     public long timeWaitedForRoll(long now, long messageTimestamp) {
         // Load the timestamp of the first message into memory
+        /**
+         * 将 firstBatch 的最大时间戳设置到 rollingBasedTimestamp 上了
+         * 高版本kafka中由于只有一个batch，所以此时该方法 timeWaitedForRoll = 0
+          */
         loadFirstBatchTimestamp();
         long ts = rollingBasedTimestamp.orElse(-1L);
         if (ts >= 0)

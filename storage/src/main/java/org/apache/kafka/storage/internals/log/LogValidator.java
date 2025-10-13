@@ -160,7 +160,7 @@ public class LogValidator {
                 return convertAndAssignOffsetsNonCompressed(offsetCounter, metricsRecorder);
             else
                 // Do in-place validation, offset assignment and maybe set timestamp
-                // 默认会走进该分支
+                // 默认会走进该分支：计算最大时间戳和最大offset
                 return assignOffsetsNonCompressed(offsetCounter, metricsRecorder);
         } else
             return validateMessagesAndAssignOffsetsCompressed(offsetCounter, metricsRecorder, bufferSupplier);
@@ -243,7 +243,7 @@ public class LogValidator {
     public ValidationResult assignOffsetsNonCompressed(LongRef offsetCounter,
                                                        MetricsRecorder metricsRecorder) {
         long now = time.milliseconds();
-        // 当前这批 records
+        // 当前这批 records 里最大时间戳 和 最大 offset
         long maxTimestamp = RecordBatch.NO_TIMESTAMP;
         long offsetOfMaxTimestamp = -1L;
         long initialOffset = offsetCounter.value;
@@ -251,8 +251,9 @@ public class LogValidator {
         RecordBatch firstBatch = getFirstBatchAndMaybeValidateNoMoreBatches(records, CompressionType.NONE);
         // 高版本的records，此时的 batches 里实际只有一个 batch
         for (MutableRecordBatch batch : records.batches()) {
+            // producer 发的消息， origin = client
             validateBatch(topicPartition, firstBatch, batch, origin, toMagic, metricsRecorder);
-
+            // 同一个batch内部最大时间戳：maxBatchTimestamp、最大offset：offsetOfMaxBatchTimestamp
             long maxBatchTimestamp = RecordBatch.NO_TIMESTAMP;
             long offsetOfMaxBatchTimestamp = -1L;
 
@@ -268,6 +269,9 @@ public class LogValidator {
 
                 long offset = offsetCounter.value++;
                 if (batch.magic() > RecordBatch.MAGIC_VALUE_V0 && record.timestamp() > maxBatchTimestamp) {
+                    /**
+                     * 计算当前batch maxBatchTimestamp 和 maxBatchTimestamp 对应的offset：offsetOfMaxBatchTimestamp
+                     */
                     maxBatchTimestamp = record.timestamp();
                     offsetOfMaxBatchTimestamp = offset;
                 }
@@ -276,6 +280,9 @@ public class LogValidator {
 
             processRecordErrors(recordErrors);
 
+            /**
+             * 计算当前records的最大时间戳和最大offset
+             */
             if (batch.magic() > RecordBatch.MAGIC_VALUE_V0 && maxBatchTimestamp > maxTimestamp) {
                 maxTimestamp = maxBatchTimestamp;
                 offsetOfMaxTimestamp = offsetOfMaxBatchTimestamp;
@@ -286,6 +293,7 @@ public class LogValidator {
             if (batch.magic() >= RecordBatch.MAGIC_VALUE_V2)
                 batch.setPartitionLeaderEpoch(partitionLeaderEpoch);
 
+            // timestampType 默认等于 "CreateTime"
             if (batch.magic() > RecordBatch.MAGIC_VALUE_V0) {
                 if (timestampType == TimestampType.LOG_APPEND_TIME)
                     batch.setMaxTimestamp(TimestampType.LOG_APPEND_TIME, now);
@@ -299,6 +307,7 @@ public class LogValidator {
             offsetOfMaxTimestamp = initialOffset;
         }
 
+        // 高版本Kafka进入该逻辑，所以最终 最大offset，没有取循环算的，而是取offsetCounter递增得到的值
         if (toMagic >= RecordBatch.MAGIC_VALUE_V2) {
             offsetOfMaxTimestamp = offsetCounter.value - 1;
         }
@@ -495,6 +504,7 @@ public class LogValidator {
                 + firstBatch.magic() + " in topic partition " + topicPartition);
         }
 
+        // 校验了下 batch 里消息长度
         if (origin == AppendOrigin.CLIENT) {
             if (batch.magic() >= RecordBatch.MAGIC_VALUE_V2) {
                 long countFromOffsets = batch.lastOffset() - batch.baseOffset() + 1;

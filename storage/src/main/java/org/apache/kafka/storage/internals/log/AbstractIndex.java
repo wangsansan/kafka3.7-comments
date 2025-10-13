@@ -77,6 +77,7 @@ public abstract class AbstractIndex implements Closeable {
         Objects.requireNonNull(file);
         this.file = file;
         this.baseOffset = baseOffset;
+        // config.maxIndexSize
         this.maxIndexSize = maxIndexSize;
         this.writable = writable;
 
@@ -96,6 +97,7 @@ public abstract class AbstractIndex implements Closeable {
         try {
             /* pre-allocate the file if necessary */
             if (newlyCreated) {
+                // 这个是默认控制index文件大小的
                 if (maxIndexSize < entrySize())
                     throw new IllegalArgumentException("Invalid max index size: " + maxIndexSize);
                 raf.setLength(roundDownToExactMultiple(maxIndexSize, entrySize()));
@@ -313,6 +315,7 @@ public abstract class AbstractIndex implements Closeable {
 
     /**
      * Check if a particular offset is valid to be appended to this index.
+     * 校验offset有没有超过int的最大值，超过了就return false
      * @param offset The offset to check
      * @return true if this offset is valid to be appended to this index; false otherwise
      */
