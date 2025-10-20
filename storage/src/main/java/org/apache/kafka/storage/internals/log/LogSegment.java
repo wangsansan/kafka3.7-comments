@@ -281,6 +281,7 @@ public class LogSegment implements Closeable {
             if (bytesSinceLastIndexEntry > indexIntervalBytes) {
                 // 注意看此时的physicalPosition， physicalPosition是records写入之前的物理位置，但是下标index却是写入之后的位置
                 // 也就是offset其实存的是开始查找位置，offset索引文件里，key 对应的 value 是当前records开始写的位置
+                // 注意相对地址的逻辑在方法实现内部
                 offsetIndex().append(largestOffset, physicalPosition);
                 timeIndex().maybeAppend(maxTimestampSoFar(), offsetOfMaxTimestampSoFar());
                 bytesSinceLastIndexEntry = 0;

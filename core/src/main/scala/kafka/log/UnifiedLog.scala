@@ -1707,7 +1707,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
    * 1. logSegment如果放入当前records，超过1GB
    * 2. The maxTime has elapsed since the timestamp of first message in the segment (or since the
    *    create time if the first message does not have a timestamp)
-   * 2. 自当前日志段中第一条消息的时间戳（若没有时间戳则以段创建时间为准）起，已超过配置的最大时间间隔（由 log.roll.hours 控制，默认 7 天）。
+   * 2. 自当前日志段中第一条消息的时间戳（若没有时间戳则以段创建时间为准）起至今，已超过配置的最大时间间隔（由 log.roll.hours 控制，默认 7 天）。
    * 3. The index is full
    * 3. 日志段对应的索引文件（.index）已达到最大容量（由 log.index.size.max.bytes 控制，默认 10MB）。
    *

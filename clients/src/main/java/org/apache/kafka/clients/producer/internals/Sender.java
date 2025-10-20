@@ -399,6 +399,7 @@ public class Sender implements Runnable {
         long notReadyTimeout = Long.MAX_VALUE;
         while (iter.hasNext()) {
             Node node = iter.next();
+            // ready方法里面会进行连接的创建
             if (!this.client.ready(node, now)) {
                 // Update just the readyTimeMs of the latency stats, so that it moves forward
                 // every time the batch is ready (then the difference between readyTimeMs and

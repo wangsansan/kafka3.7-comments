@@ -302,6 +302,7 @@ public class NetworkClient implements KafkaClient {
         if (node.isEmpty())
             throw new IllegalArgumentException("Cannot connect to empty node " + node);
 
+        // 如果已经连接了，就不用重新连接了。也就是每次连接的时候都会判断下是否需要重新创建连接
         if (isReady(node, now))
             return true;
 
