@@ -99,7 +99,9 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
     private final ConsumerCoordinatorMetrics coordinatorMetrics;
     private final SubscriptionState subscriptions;
     private final OffsetCommitCallback defaultOffsetCommitCallback;
+    // 默认是true
     private final boolean autoCommitEnabled;
+    // 默认值是5000毫秒
     private final int autoCommitIntervalMs;
     private final ConsumerInterceptors<?, ?> interceptors;
     // track number of async commits for which callback must be called
@@ -199,7 +201,8 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         this.throwOnFetchStableOffsetsUnsupported = throwOnFetchStableOffsetsUnsupported;
 
         if (autoCommitEnabled) {
-            // 设置当前时间为开始时间，autoCommitIntervalMs 为 超时时间
+            // 设置当前时间为开始时间，autoCommitIntervalMs 为 自动commit offset的时间间隔
+            // 同时设置了下次自动提交的时间器为：当前时间+5000毫秒
             this.nextAutoCommitTimer = time.timer(autoCommitIntervalMs);
         }
 
@@ -470,7 +473,7 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
         invokeCompletedOffsetCommitCallbacks();
 
         /**
-         * 默认值应该是这个
+         * 默认是false
          */
         if (subscriptions.hasAutoAssignedPartitions()) {
             if (protocol == null) {
@@ -1181,13 +1184,13 @@ public final class ConsumerCoordinator extends AbstractCoordinator {
 
     public void maybeAutoCommitOffsetsAsync(long now) {
         if (autoCommitEnabled) {
-            // 重置Timer的当前时间
+            // 重置Timer的当前时间，下次autoCommit的时间也就有了
             nextAutoCommitTimer.update(now);
             /**
              * 基于当前时间计算，如果超时了就重置下Timer，同时 commit 一下 offsets
-             * 那么下次触发 commit offsets 是什么时候呢？
              */
             if (nextAutoCommitTimer.isExpired()) {
+                // 重新计算了deadline时间，这样的话，下次进来又可以先设置now，再判断now和deadline来判断是否要commit offset了
                 nextAutoCommitTimer.reset(autoCommitIntervalMs);
                 autoCommitOffsetsAsync();
             }

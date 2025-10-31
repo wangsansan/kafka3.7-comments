@@ -96,6 +96,7 @@ public class FetchCollector<K, V> {
     public Fetch<K, V> collectFetch(final FetchBuffer fetchBuffer) {
         final Fetch<K, V> fetch = Fetch.empty();
         final Queue<CompletedFetch> pausedCompletedFetches = new ArrayDeque<>();
+        // 默认每次poll 500条record
         int recordsRemaining = fetchConfig.maxPollRecords;
 
         try {
@@ -125,7 +126,7 @@ public class FetchCollector<K, V> {
                       */
                     final CompletedFetch completedFetch = fetchBuffer.peek();
 
-                    // 说明 fetchBuffer 的队列是空的
+                    // 说明 fetchBuffer 的队列是空的，也就是当前consumer节点里的fetchBuffer就是空的，需要去Server端fetch records了
                     if (completedFetch == null)
                         break;
 
@@ -149,7 +150,7 @@ public class FetchCollector<K, V> {
                     }
                     /**
                      * 此处 poll 操作是因为上面再获取下一个fetch时，用的是 peek 操作，fetch并没有出队
-                     * 此处是将该 fetch 出队
+                     * 此处是将该 fetch 出队，因为 nextInLineFetch 已经指向了第一个completedFetch了，从队列里poll掉没有影响
                       */
                     fetchBuffer.poll();
                 } else if (subscriptions.isPaused(nextInLineFetch.partition)) {
@@ -214,11 +215,10 @@ public class FetchCollector<K, V> {
                 throw new IllegalStateException("Missing position for fetchable partition " + tp);
 
             /**
-             * 也就是说 nextInLineFetch 这个 fetch 的当前待拉取的offset 和 partition 的拉取 offset 值一样
-             * 也就是说 当前 fetch 就是我们需要拉取 record 的 fetch
-             * nextInLineFetch 的待读取 offset 是否和当前该partition待读取 offset 一致
+             * position里保存了当前tp fetch到的位置，当consumer下一次执行poll的时候，就会把该offset进行commit
              */
             if (nextInLineFetch.nextFetchOffset() == position.offset) {
+                // 从 nextInLineFetch 中最多fetch出 maxRecordsNum 条数据
                 List<ConsumerRecord<K, V>> partRecords = nextInLineFetch.fetchRecords(fetchConfig,
                         deserializers,
                         maxRecordsNum);
@@ -243,7 +243,7 @@ public class FetchCollector<K, V> {
                             position.currentLeader);
                     log.trace("Updating fetch position from {} to {} for partition {} and returning {} records from `poll()`",
                             position, nextPosition, tp, partRecords.size());
-                    // 此处更新 partition 的 offset
+                    // 此处更新consumer内存里的 partition 的 offset
                     subscriptions.position(tp, nextPosition);
                     positionAdvanced = true;
                 }
@@ -322,6 +322,9 @@ public class FetchCollector<K, V> {
          * 此时需要进行校验，判断该 fetch 的 offset 是否和已消费到的 offset 一致
          */
         final TopicPartition tp = completedFetch.partition;
+        /**
+         * 初始化时，nextFetchOffset 等于当时 fetch 到这个 tp 的 completedFetch 的 request 针对该 tp 的 offset
+         */
         final long fetchOffset = completedFetch.nextFetchOffset();
 
         // we are interested in this fetch only if the beginning offset matches the

@@ -186,6 +186,7 @@ public class FetchBuffer implements AutoCloseable {
                 if (timer.isExpired())
                     break;
 
+                // 没等到条件变量condition，就break；
                 if (!notEmptyCondition.await(timer.remainingMs(), TimeUnit.MILLISECONDS)) {
                     break;
                 }

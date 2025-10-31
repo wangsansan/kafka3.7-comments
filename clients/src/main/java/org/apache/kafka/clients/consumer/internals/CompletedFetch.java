@@ -74,7 +74,7 @@ public class CompletedFetch {
 
     private int recordsRead;
     private int bytesRead;
-    // 当前正在处理的 recordBatch
+    // 当前正在使用（拉取消息的）的 recordBatch
     private RecordBatch currentBatch;
     // 当前正在处理的 record
     private Record lastRecord;
@@ -204,6 +204,7 @@ public class CompletedFetch {
              * 如果当前 records 里的数据为空了，就 获取 下一个batch，设置records
              */
             if (records == null || !records.hasNext()) {
+                // 关闭掉当前的 records，预备获取下一个 batch，并把下一个 batch 的 records 赋值给该records变量
                 maybeCloseRecordStream();
 
                 // 如果当前 completedFetch 对应的 batches 被消费完了
@@ -262,7 +263,11 @@ public class CompletedFetch {
                  */
                 Record record = records.next();
                 // skip any records out of range
-                // 此处做 大于等于 的判断，我是想不到可能是什么原因
+                /**
+                 * 此处做 大于等于 的判断，多数情况是恒成立的，
+                 * 当然这个判断更能保证当前consumer针对该partition的消费是递增有序的，难道是防止网络故障导致之前消费过的重复消费或者跳过的被pull回来么？
+                 * 因为partition内的records本身就是按照offset递增有序的，而nextFetchOffset默认等于该completedFetch的第一个record的offset
+                  */
                 if (record.offset() >= nextFetchOffset) {
                     // we only do validation when the message should not be skipped.
                     maybeEnsureValid(fetchConfig, record);
@@ -310,6 +315,7 @@ public class CompletedFetch {
                 // use the last record to do deserialization again.
                 if (cachedRecordException == null) {
                     corruptLastRecord = true;
+                    // 每次从当前 completedFetch 里fetch出一条record
                     lastRecord = nextFetchedRecord(fetchConfig);
                     corruptLastRecord = false;
                 }

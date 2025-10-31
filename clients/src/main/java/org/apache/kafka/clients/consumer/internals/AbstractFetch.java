@@ -72,7 +72,7 @@ public abstract class AbstractFetch implements Closeable {
     protected final BufferSupplier decompressionBufferSupplier;
     protected final Set<Integer> nodesWithPendingFetchRequests;
 
-    private final Map<Integer, FetchSessionHandler> sessionHandlers;
+    private final Map<Integer/*nodeId*/, FetchSessionHandler> sessionHandlers;
 
     private final ApiVersions apiVersions;
 
@@ -170,6 +170,7 @@ public abstract class AbstractFetch implements Closeable {
             Map<TopicPartition, Metadata.LeaderIdAndEpoch> partitionsWithUpdatedLeaderInfo = new HashMap<>();
             for (Map.Entry<TopicPartition, FetchResponseData.PartitionData> entry : responseData.entrySet()) {
                 TopicPartition partition = entry.getKey();
+                // 每次 fetch， 一个 partition 只 fetch 一个 requestData
                 FetchRequest.PartitionData requestData = data.sessionPartitions().get(partition);
 
                 if (requestData == null) {
@@ -188,7 +189,6 @@ public abstract class AbstractFetch implements Closeable {
                     // Received fetch response for missing session partition
                     throw new IllegalStateException(message);
                 }
-
                 long fetchOffset = requestData.fetchOffset;
                 /**
                  * fetch到的数据就在这里面
@@ -206,7 +206,9 @@ public abstract class AbstractFetch implements Closeable {
                             Optional.of(partitionData.currentLeader().leaderId()), Optional.of(partitionData.currentLeader().leaderEpoch())));
                     }
                 }
-
+                /**
+                 * 每次fetch，每个partition fetch 到一个 requestData，封装成一个 completedFetch
+                 */
                 CompletedFetch completedFetch = new CompletedFetch(
                         logContext,
                         subscriptions,
@@ -332,6 +334,7 @@ public abstract class AbstractFetch implements Closeable {
          * 后续只针对在fetchBuffer里没有缓存了的，但是又属于该消费者消费的 partition 进行 消息拉取（fetchRequest的调用）
          */
         // This is the set of partitions we have in our buffer
+        // 先找出当前 consumer 节点缓存了哪些 tp 的数据
         Set<TopicPartition> buffered = fetchBuffer.bufferedPartitions();
 
         // This is the test that returns true if the partition is *not* buffered
@@ -339,6 +342,7 @@ public abstract class AbstractFetch implements Closeable {
 
         // Return all partitions that are in an otherwise fetchable state *and* for which we don't already have some
         // messages sitting in our buffer.
+        // 找出订阅的所有tp，再排除掉fetchBuffer里有的tp
         return new HashSet<>(subscriptions.fetchablePartitions(isNotBuffered));
     }
 
@@ -453,7 +457,11 @@ public abstract class AbstractFetch implements Closeable {
                  */
                 // if there is a leader and no in-flight requests, issue a new fetch
                 FetchSessionHandler.Builder builder = fetchable.computeIfAbsent(node, k -> {
-                    FetchSessionHandler fetchSessionHandler = sessionHandlers.computeIfAbsent(node.id(), n -> new FetchSessionHandler(logContext, n));
+                    FetchSessionHandler fetchSessionHandler =
+                            sessionHandlers.computeIfAbsent(
+                                    node.id(),
+                                    n/*nodeId*/ -> new FetchSessionHandler(logContext, n/*nodeId*/)
+                            );
                     return fetchSessionHandler.newBuilder();
                 });
                 Uuid topicId = topicIds.getOrDefault(partition.topic(), Uuid.ZERO_UUID);
@@ -463,6 +471,7 @@ public abstract class AbstractFetch implements Closeable {
                         fetchConfig.fetchSize,
                         position.currentLeader.epoch,
                         Optional.empty());
+
                 builder.add(partition, partitionData);
 
                 log.debug("Added {} fetch request for partition {} at position {} to node {}", fetchConfig.isolationLevel,

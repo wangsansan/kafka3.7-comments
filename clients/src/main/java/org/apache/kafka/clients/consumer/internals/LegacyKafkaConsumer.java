@@ -115,6 +115,7 @@ public class LegacyKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
     private Logger log;
     private final String clientId;
     private final Optional<String> groupId;
+    // 消费者协调员
     private final ConsumerCoordinator coordinator;
     private final Deserializers<K, V> deserializers;
     private final Fetcher<K, V> fetcher;
@@ -294,10 +295,14 @@ public class LegacyKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
         this.clientTelemetryReporter = Optional.empty();
 
         int sessionTimeoutMs = config.getInt(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG);
+        // 默认45000毫秒
         int rebalanceTimeoutMs = config.getInt(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG);
+        // 默认3000毫秒
         int heartbeatIntervalMs = config.getInt(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG);
+        // 默认为true
         boolean enableAutoCommit = config.getBoolean(ENABLE_AUTO_COMMIT_CONFIG);
         boolean throwOnStableOffsetNotSupported = config.getBoolean(THROW_ON_FETCH_STABLE_OFFSET_UNSUPPORTED);
+        // 默认是5000毫秒
         int autoCommitIntervalMs = config.getInt(AUTO_COMMIT_INTERVAL_MS_CONFIG);
         String rackId = config.getString(CLIENT_RACK_CONFIG);
         Optional<String> groupInstanceId = Optional.ofNullable(config.getString(ConsumerConfig.GROUP_INSTANCE_ID_CONFIG));
@@ -687,7 +692,8 @@ public class LegacyKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
 
         // send any new fetches (won't resend pending fetches)
         /**
-         * 并没有发生网络IO，只是组装了fetch request，并放到了client的unsent里
+         * 当本地fetchBuffer里没有数据的时候，发送网络请求去Server端进行数据的 fetch
+         * 并没有发生网络IO，只是组装了fetch request，并放到了 client 的 unsent 里
          */
         sendFetches();
 

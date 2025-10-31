@@ -265,6 +265,7 @@ public class FetchSessionHandler {
             next.put(topicPartition, data);
             // topicIds should not change between adding partitions and building, so we can use putIfAbsent
             if (data.topicId.equals(Uuid.ZERO_UUID)) {
+                // kafka2.8之前topic都只有名称（topicName），没有topicId，所以这段代码是为了兼容
                 partitionsWithoutTopicIds++;
             } else {
                 topicNames.putIfAbsent(data.topicId, topicPartition.topic());

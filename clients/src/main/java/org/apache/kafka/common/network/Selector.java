@@ -336,10 +336,11 @@ public class Selector implements Selectable, AutoCloseable {
 
     private KafkaChannel buildAndAttachKafkaChannel(SocketChannel socketChannel, String id, SelectionKey key) throws IOException {
         try {
+            // 由于可以通过key.channel()获取到socketChannel，所以构建KafkaChannel时只需要key，不需要socketChannel了
             KafkaChannel channel = channelBuilder.buildChannel(id, key, maxReceiveSize, memoryPool,
                 new SelectorChannelMetadataRegistry());
             // 此处将 KafkaChannel attach到 SelectionKey 上，
-            // 等到 SelectionKey 被事件驱动之后，可以直接获取到该channel
+            // 等到 SelectionKey 被事件驱动之后，可以通过key.attachment()获取到该channel
             key.attach(channel);
             return channel;
         } catch (Exception e) {
@@ -388,6 +389,7 @@ public class Selector implements Selectable, AutoCloseable {
      */
     public void send(NetworkSend send) {
         String connectionId = send.destinationId();
+        // 获取保存的链接，调用 org.apache.kafka.clients.NetworkClient.ready 的时候，会确保有socketChannel
         KafkaChannel channel = openOrClosingChannelOrFail(connectionId);
         if (closingChannels.containsKey(connectionId)) {
             // ensure notification via `disconnected`, leave channel in the state in which closing was triggered

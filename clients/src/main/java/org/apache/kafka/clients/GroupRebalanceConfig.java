@@ -57,6 +57,7 @@ public class GroupRebalanceConfig {
         }
 
         this.heartbeatIntervalMs = config.getInt(CommonClientConfigs.HEARTBEAT_INTERVAL_MS_CONFIG);
+        // 消费组ID，研发配置的那个
         this.groupId = config.getString(CommonClientConfigs.GROUP_ID_CONFIG);
 
         // Static membership is only introduced in consumer API.
