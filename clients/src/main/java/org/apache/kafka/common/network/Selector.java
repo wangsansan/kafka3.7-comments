@@ -484,6 +484,7 @@ public class Selector implements Selectable, AutoCloseable {
             Set<SelectionKey> readyKeys = this.nioSelector.selectedKeys();
 
             // Poll from channels that have buffered data (but nothing more from the underlying socket)
+            // 默认plainXXX为false
             if (dataInBuffers) {
                 keysWithBufferedRead.removeAll(readyKeys); //so no channel gets polled twice
                 Set<SelectionKey> toPoll = keysWithBufferedRead;
@@ -538,11 +539,12 @@ public class Selector implements Selectable, AutoCloseable {
 
             try {
                 /* complete any connections that have finished their handshake (either normally or immediately) */
+                // 此处是处理握手事件
                 if (isImmediatelyConnected || key.isConnectable()) {
                     if (channel.finishConnect()) {
                         this.connected.add(nodeId);
                         this.sensors.connectionCreated.record();
-
+                        // 获取到key上面的channel
                         SocketChannel socketChannel = (SocketChannel) key.channel();
                         log.debug("Created socket with SO_RCVBUF = {}, SO_SNDBUF = {}, SO_TIMEOUT = {} to node {}",
                                 socketChannel.socket().getReceiveBufferSize(),
@@ -590,8 +592,11 @@ public class Selector implements Selectable, AutoCloseable {
                 /**
                  * producer：有可能之前发送的消息的ack回来了，需要记录一下
                  * server：read 事件处理逻辑也走到这里了
+                 * consumer: 当fetch到数据之后，对应的channel也会变成readable，所以可以获取到数据
                  */
-                if (channel.ready() && (key.isReadable() || channel.hasBytesBuffered()) && !hasCompletedReceive(channel)
+                if (channel.ready()
+                        && (key.isReadable() || channel.hasBytesBuffered())
+                        && !hasCompletedReceive(channel)
                         && !explicitlyMutedChannels.contains(channel)) {
                     // 把读取到的数据存到了 selector 的 completedReceives 里了
                     attemptRead(channel);
@@ -665,8 +670,9 @@ public class Selector implements Selectable, AutoCloseable {
     // package-private for testing
     void write(KafkaChannel channel) throws IOException {
         String nodeId = channel.id();
+        // 通过网络IO把消息发送出去了
         long bytesSent = channel.write();
-        // 顺便把KafkaChannel上的send置为null
+        // 删除监听写事件，顺便把KafkaChannel上的send置为null
         NetworkSend send = channel.maybeCompleteSend();
         // We may complete the send with bytesSent < 1 if `TransportLayer.hasPendingWrites` was true and `channel.write()`
         // caused the pending writes to be written to the socket channel buffer
@@ -707,7 +713,8 @@ public class Selector implements Selectable, AutoCloseable {
             NetworkReceive receive = channel.maybeCompleteReceive();
             if (receive != null) {
                 // producer：将读取到的数据暂存一下（消息ack信息），用来后续判断之前发送的消息是否成功
-                // server：暂存的就是可能是 producer 发过来的信息了
+                // server：暂存的就是 producer和consumer 发过来的信息了
+                // consumer: fetch到的数据
                 addToCompletedReceives(channel, receive, currentTimeMs);
             }
         }

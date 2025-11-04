@@ -627,7 +627,7 @@ public class LegacyKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
                         log.warn("Still waiting for metadata");
                     }
                 }
-
+                // 核心方法，从Server端 poll 数据
                 final Fetch<K, V> fetch = pollForFetches(timer);
                 if (!fetch.isEmpty()) {
                     // before returning the fetched records, we can send off the next round of fetches
@@ -694,6 +694,7 @@ public class LegacyKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
         /**
          * 当本地fetchBuffer里没有数据的时候，发送网络请求去Server端进行数据的 fetch
          * 并没有发生网络IO，只是组装了fetch request，并放到了 client 的 unsent 里
+         * 下面才调用了client.poll操作
          */
         sendFetches();
 

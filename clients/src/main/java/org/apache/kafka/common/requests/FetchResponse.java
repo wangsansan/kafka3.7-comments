@@ -98,6 +98,7 @@ public class FetchResponse extends AbstractResponse {
         return Errors.forCode(data.errorCode());
     }
 
+    // 把fetch到的response解析成 partitionData
     public LinkedHashMap<TopicPartition, FetchResponseData.PartitionData> responseData(Map<Uuid, String> topicNames, short version) {
         /**
          * 双重检查锁

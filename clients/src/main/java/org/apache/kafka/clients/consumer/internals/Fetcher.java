@@ -102,7 +102,7 @@ public class Fetcher<K, V> extends AbstractFetch {
      * @return number of fetches sent
      */
     public synchronized int sendFetches() {
-        // 设置 fetchRequests
+        // 组装 fetchRequests
         final Map<Node, FetchSessionHandler.FetchRequestData> fetchRequests = prepareFetchRequests();
 
         /**
@@ -112,7 +112,7 @@ public class Fetcher<K, V> extends AbstractFetch {
                 fetchRequests,
                 (fetchTarget, data, clientResponse) -> {
                     synchronized (Fetcher.this) {
-                        // 接收到数据的回调方法
+                        // 接收到数据(fetch response)的回调方法
                         handleFetchSuccess(fetchTarget, data, clientResponse);
                     }
                 },

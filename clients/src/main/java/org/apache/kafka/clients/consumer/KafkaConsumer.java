@@ -596,6 +596,7 @@ public class KafkaConsumer<K, V> implements Consumer<K, V> {
                 keyDeserializer, valueDeserializer);
     }
 
+    // 从这个入口进
     KafkaConsumer(ConsumerConfig config, Deserializer<K> keyDeserializer, Deserializer<V> valueDeserializer) {
         delegate = CREATOR.create(config, keyDeserializer, valueDeserializer);
     }

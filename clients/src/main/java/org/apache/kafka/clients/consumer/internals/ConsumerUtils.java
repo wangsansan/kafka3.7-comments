@@ -74,6 +74,7 @@ public final class ConsumerUtils {
     private static final String CONSUMER_CLIENT_ID_METRIC_TAG = "client-id";
     private static final Logger log = LoggerFactory.getLogger(ConsumerUtils.class);
 
+    // 构建consumerNetworkClient
     public static ConsumerNetworkClient createConsumerNetworkClient(ConsumerConfig config,
                                                                     Metrics metrics,
                                                                     LogContext logContext,

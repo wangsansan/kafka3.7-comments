@@ -605,6 +605,7 @@ public class NetworkClient implements KafkaClient {
         long updatedNow = this.time.milliseconds();
         List<ClientResponse> responses = new ArrayList<>();
         handleCompletedSends(responses, updatedNow);
+        // fetch到的数据，很可能是上次的fetch request发送之后fetch到的数据，放到了responses里面
         handleCompletedReceives(responses, updatedNow);
         handleDisconnections(responses, updatedNow);
         handleConnections();
@@ -612,7 +613,8 @@ public class NetworkClient implements KafkaClient {
         handleTimedOutConnections(responses, updatedNow);
         handleTimedOutRequests(responses, updatedNow);
         /**
-         * 调用request的回调方法，主要就是消息的ack，执行发送消息producerBatch 的done方法
+         * producer：调用request的回调方法，主要就是消息的ack，执行发送消息producerBatch 的done方法
+         * consumer：调用request的回调方法，
          */
         completeResponses(responses);
 
@@ -907,6 +909,7 @@ public class NetworkClient implements KafkaClient {
     private void handleCompletedSends(List<ClientResponse> responses, long now) {
         // if no response is expected then when the send is completed, return it
         for (NetworkSend send : this.selector.completedSends()) {
+            // 获取到对node最后一次发送的request
             InFlightRequest request = this.inFlightRequests.lastSent(send.destinationId());
             // expectResponse = acks != 0
             if (!request.expectResponse) {
@@ -944,7 +947,8 @@ public class NetworkClient implements KafkaClient {
         for (NetworkReceive receive : this.selector.completedReceives()) {
             String source = receive.source();
             /**
-             * 通过此处逻辑可以发现，服务端在发送消息ack回来时，严格按照了客户端发送消息的顺序
+             * producer:通过此处逻辑可以发现，服务端在发送消息ack回来时，严格按照了客户端发送消息的顺序
+             * consumer:获取最后一次针对Source节点发送的fetch request
              */
             InFlightRequest req = inFlightRequests.completeNext(source);
 
@@ -971,7 +975,10 @@ public class NetworkClient implements KafkaClient {
             else if (req.isInternalRequest && response instanceof PushTelemetryResponse)
                 telemetrySender.handleResponse((PushTelemetryResponse) response);
             else {
-                // 走到此处，我们认为接收到的是消息发送的ack返回了，那么对应的request更新为 completed
+                /**
+                 * producer：走到此处，我们认为接收到的是消息发送的ack返回了，那么对应的request更新为 completed
+                 * consumer: 收到的消息是fetch到的数据
+                  */
                 responses.add(req.completed(response, now));
             }
         }

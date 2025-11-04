@@ -126,6 +126,8 @@ public class ConsumerNetworkClient implements Closeable {
                                               AbstractRequest.Builder<?> requestBuilder,
                                               int requestTimeoutMs) {
         long now = time.milliseconds();
+        // 此处放入了 callback，该callback的complete就是把fetch到的response设置到了completionHandler，同时把handler放到了pendingCompletion里
+        // 同时completionHandler的fireCompletion就是解析fetch到的response，并基于tp维度解析为completedFetch
         RequestFutureCompletionHandler completionHandler = new RequestFutureCompletionHandler();
         ClientRequest clientRequest = client.newClientRequest(node.idString(), requestBuilder, now, true,
             requestTimeoutMs, completionHandler);
@@ -270,7 +272,7 @@ public class ConsumerNetworkClient implements Closeable {
             // send all the requests we can send now
             /**
              * 底层还是调用的 kafkaClient -> networkClient -> kafkaChannel
-             * 也就是目前只是把待发送数据同步到了 kafkaChannel 的send对象上了
+             * 也就是目前只是把待发送数据同步到了 kafkaChannel 的send对象上了，同时注册写事件
              */
             long pollDelayMs = trySend(timer.currentTimeMs());
 
@@ -287,6 +289,7 @@ public class ConsumerNetworkClient implements Closeable {
                 long pollTimeout = Math.min(timer.remainingMs(), pollDelayMs);
                 if (client.inFlightRequestCount() == 0)
                     pollTimeout = Math.min(pollTimeout, retryBackoffMs);
+                // 此处真正去进行nio发送消息
                 client.poll(pollTimeout, timer.currentTimeMs());
             } else {
                 client.poll(0, timer.currentTimeMs());
@@ -432,6 +435,8 @@ public class ConsumerNetworkClient implements Closeable {
     private void firePendingCompletedRequests() {
         boolean completedRequestsFired = false;
         for (;;) {
+            // 先把之前fetch请求返回的数据拿出来（如果有的话）
+            // org.apache.kafka.clients.NetworkClient.completeResponses 这个方法里通过调用callback.onComplete把fetch到的response放到了completionHandler里
             RequestFutureCompletionHandler completionHandler = pendingCompletion.poll();
             if (completionHandler == null)
                 break;
@@ -631,6 +636,7 @@ public class ConsumerNetworkClient implements Closeable {
             } else if (response.versionMismatch() != null) {
                 future.raise(response.versionMismatch());
             } else {
+                // 此处是针对fetch到的response进行处理
                 future.complete(response);
             }
         }

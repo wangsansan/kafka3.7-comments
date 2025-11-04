@@ -221,6 +221,7 @@ public final class ClientUtils {
 
         try {
             channelBuilder = ClientUtils.createChannelBuilder(config, time, logContext);
+            // 最大空闲时间，默认 9 分钟
             selector = new Selector(config.getLong(CommonClientConfigs.CONNECTIONS_MAX_IDLE_MS_CONFIG),
                     metrics,
                     time,
