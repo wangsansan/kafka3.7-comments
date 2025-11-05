@@ -41,6 +41,8 @@ final class InFlightRequests {
 
     /**
      * Add the given request to the queue for the connection it was directed to
+     * 如果一个节点发出去过多次请求，使用头插法，插在第一个，但是处理的时候是从最后一个请求开始处理
+     * NetworkClient#handleCompletedReceives(java.util.List, long)，也就是先进先出的队列处理方式
      */
     public void add(NetworkClient.InFlightRequest request) {
         String destination = request.destination;
@@ -49,6 +51,8 @@ final class InFlightRequests {
             reqs = new ArrayDeque<>();
             this.requests.put(destination, reqs);
         }
+        // 注意此处往request里放的时候，是头插法；但是在处理response的时候是进行从最后一个request进行匹配：NetworkClient.handleCompletedReceives
+        // 也就是先进先出的处理方式
         reqs.addFirst(request);
         inFlightRequestCount.incrementAndGet();
     }

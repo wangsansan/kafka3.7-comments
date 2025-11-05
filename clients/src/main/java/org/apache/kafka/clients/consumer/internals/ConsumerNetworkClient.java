@@ -126,9 +126,11 @@ public class ConsumerNetworkClient implements Closeable {
                                               AbstractRequest.Builder<?> requestBuilder,
                                               int requestTimeoutMs) {
         long now = time.milliseconds();
-        // 此处放入了 callback，该callback的complete就是把fetch到的response设置到了completionHandler，同时把handler放到了pendingCompletion里
-        // 同时completionHandler的fireCompletion就是解析fetch到的response，并基于tp维度解析为completedFetch
+        /** 此处放入了 callback，该callback的complete就是把fetch到的response设置到了completionHandler，同时把handler放到了pendingCompletion里
+        *   同时completionHandler的fireCompletion就是解析fetch到的response，并基于tp维度解析为completedFetch
+         * */
         RequestFutureCompletionHandler completionHandler = new RequestFutureCompletionHandler();
+        // 此处给request设置了 correlationId 和 completionHandler，都是处理fetch response时的重要属性
         ClientRequest clientRequest = client.newClientRequest(node.idString(), requestBuilder, now, true,
             requestTimeoutMs, completionHandler);
         unsent.put(node, clientRequest);
@@ -273,6 +275,7 @@ public class ConsumerNetworkClient implements Closeable {
             /**
              * 底层还是调用的 kafkaClient -> networkClient -> kafkaChannel
              * 也就是目前只是把待发送数据同步到了 kafkaChannel 的send对象上了，同时注册写事件
+             * 同时还把此时的clientRequest放入到了inFlightRequests里了
              */
             long pollDelayMs = trySend(timer.currentTimeMs());
 
@@ -282,7 +285,7 @@ public class ConsumerNetworkClient implements Closeable {
             /**
              * 当是fetch request进行fetch 消息时，此时的 pollCondition 是必须在fetchBuffer里有数据：
              *      也就是返回了数据且success回调将数据写入了fetchBuffer里
-             * 只要没数据，就通知client去处理读写事件，而写事件就是真正发送fetch request
+             * 只要没数据，就通知client去处理读写事件，读事件是解析之前fetch request得到的数据；而写事件就是真正发送fetch request
              */
             if (pendingCompletion.isEmpty() && (pollCondition == null || pollCondition.shouldBlock())) {
                 // if there are no requests in flight, do not block longer than the retry backoff
@@ -518,7 +521,8 @@ public class ConsumerNetworkClient implements Closeable {
     /**
      * 试图发送，
      * 1. 把当前可发送的数据从unsent里同步到selector的send里
-     * 2. 注册写事件
+     * 2. 通过requestBuilder进行build request
+     * 3. 注册写事件
      * @param now
      * @return
      */

@@ -725,7 +725,8 @@ public class LegacyKafkaConsumer<K, V> implements ConsumerDelegate<K, V> {
         });
         timer.update(pollTimer.currentTimeMs());
         /**
-         * 再次从fetchBuffer 里获取 record，能走到此处，一定是有数据的
+         * 再次从fetchBuffer 里获取 record
+         *  其实也就是判断本次poll操作是否从channel监听到read事件，从而拿到了fetch到的message
          */
         return fetcher.collectFetch();
     }

@@ -524,6 +524,7 @@ public class NetworkClient implements KafkaClient {
             }
             // The call to build may also throw UnsupportedVersionException, if there are essential
             // fields that cannot be represented in the chosen version.
+            // 此处调用了requestBuilder.build()方法，构建了request
             doSend(clientRequest, isInternalRequest, now, builder.build(version));
         } catch (UnsupportedVersionException unsupportedVersionException) {
             // If the version is not supported, skip sending the request over the wire.
@@ -949,6 +950,10 @@ public class NetworkClient implements KafkaClient {
             /**
              * producer:通过此处逻辑可以发现，服务端在发送消息ack回来时，严格按照了客户端发送消息的顺序
              * consumer:获取最后一次针对Source节点发送的fetch request
+             *
+             * 此处是从source节点的请求队列里拿出最后一个请求，但是放的时候是放到第一个nFlightRequests#add(org.apache.kafka.clients.NetworkClient.InFlightRequest)
+             * 也就是先进先出的处理方式。
+             *
              */
             InFlightRequest req = inFlightRequests.completeNext(source);
 
@@ -1401,6 +1406,7 @@ public class NetworkClient implements KafkaClient {
                                           boolean expectResponse,
                                           int requestTimeoutMs,
                                           RequestCompletionHandler callback) {
+        // 此处的nextCorrelationId()的作用就是RPC请求里的requestId，response回头的时候是要进行校验的
         return new ClientRequest(nodeId, requestBuilder, nextCorrelationId(), clientId, createdTimeMs, expectResponse,
                 requestTimeoutMs, callback);
     }

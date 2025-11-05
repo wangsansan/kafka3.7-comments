@@ -98,7 +98,7 @@ public abstract class AbstractResponse implements AbstractRequestResponse {
         short apiVersion = requestHeader.apiVersion();
 
         ResponseHeader responseHeader = ResponseHeader.parse(buffer, apiKey.responseHeaderVersion(apiVersion));
-
+        // 这个correlationId跟RPC框架里的requestId是一回事，用来匹配response和request使用的
         if (requestHeader.correlationId() != responseHeader.correlationId()) {
             throw new CorrelationIdMismatchException("Correlation id for response ("
                 + responseHeader.correlationId() + ") does not match request ("
