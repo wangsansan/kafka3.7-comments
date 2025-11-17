@@ -98,10 +98,12 @@ public class OffsetIndex extends AbstractIndex {
     public OffsetPosition lookup(long targetOffset) {
         return maybeLock(lock, () -> {
             ByteBuffer idx = mmap().duplicate();
+            // 使用二分法找到小于等于targetOffset的最大offset所在slot（条目）
             int slot = largestLowerBoundSlotFor(idx, targetOffset, IndexSearchType.KEY);
             if (slot == -1)
                 return new OffsetPosition(baseOffset(), 0);
             else
+                // 返回slot的绝对index和其物理位置
                 return parseEntry(idx, slot);
         });
     }
@@ -204,6 +206,8 @@ public class OffsetIndex extends AbstractIndex {
 
     @Override
     protected OffsetPosition parseEntry(ByteBuffer buffer, int n) {
+        // 也就是offsetIndex存的是 relativeOffset1-physical1,relativeOffset2-physical2,relativeOffset3-physical3
+        // slot和physical都是占用4个字节，所以只要确定了slot，就能很快找到slot对应的相对offset和物理地址
         return new OffsetPosition(baseOffset() + relativeOffset(buffer, n), physical(buffer, n));
     }
 

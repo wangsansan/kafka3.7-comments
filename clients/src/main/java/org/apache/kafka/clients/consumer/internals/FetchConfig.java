@@ -29,8 +29,11 @@ import static org.apache.kafka.clients.consumer.internals.ConsumerUtils.configur
  */
 public class FetchConfig {
 
+    // 默认1
     public final int minBytes;
+    // 默认50MB，但是3.7之后，服务端默认值变成了55MB
     public final int maxBytes;
+    // 默认500毫秒
     public final int maxWaitMs;
     // 这个变量是给真正的 Fetch request 使用的: 每个 partition 获取数据大小，默认1MB
     public final int fetchSize;

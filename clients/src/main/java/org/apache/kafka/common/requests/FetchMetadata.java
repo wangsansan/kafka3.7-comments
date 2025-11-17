@@ -87,6 +87,7 @@ public class FetchMetadata {
 
     /**
      * Returns true if this is a full fetch request.
+     * 判断是否需要进行全量数据的fetch
      */
     public boolean isFull() {
         return (this.epoch == INITIAL_EPOCH) || (this.epoch == FINAL_EPOCH);

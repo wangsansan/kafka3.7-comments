@@ -34,6 +34,7 @@ public enum FetchIsolation {
         } else if (isolationLevel == IsolationLevel.READ_COMMITTED) {
             return TXN_COMMITTED;
         } else {
+            // consumer端，非事务消息，FetchIsolation返回这个
             return HIGH_WATERMARK;
         }
     }

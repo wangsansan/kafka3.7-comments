@@ -949,9 +949,10 @@ public class NetworkClient implements KafkaClient {
             String source = receive.source();
             /**
              * producer:通过此处逻辑可以发现，服务端在发送消息ack回来时，严格按照了客户端发送消息的顺序
-             * consumer:获取最后一次针对Source节点发送的fetch request
+             * consumer:获取最后一次针对Source节点发送的fetch request返回的response
              *
-             * 此处是从source节点的请求队列里拿出最后一个请求，但是放的时候是放到第一个nFlightRequests#add(org.apache.kafka.clients.NetworkClient.InFlightRequest)
+             * 此处是从source节点的请求队列里拿出最后一个请求，
+             * 但是放的时候是放到第一个InFlightRequests#add(InFlightRequest)
              * 也就是先进先出的处理方式。
              *
              */

@@ -514,6 +514,7 @@ class Partition(val topicPartition: TopicPartition,
         } else {
           log match {
             case Some(partitionLog) =>
+              // 正常情况走到这里
               Left(partitionLog)
             case _ =>
               Right(Errors.NOT_LEADER_OR_FOLLOWER)
@@ -552,6 +553,7 @@ class Partition(val topicPartition: TopicPartition,
     requireLeader: Boolean
   ): UnifiedLog = {
     getLocalLog(currentLeaderEpoch, requireLeader) match {
+      // 正常情况走到这里
       case Left(localLog) => localLog
       case Right(error) =>
         throw error.exception(s"Failed to find ${if (requireLeader) "leader" else ""} log for " +
@@ -1524,6 +1526,11 @@ class Partition(val topicPartition: TopicPartition,
     }
   }
 
+  /**
+   * epoch就是为了判断下是否可以再从当前的leader里 fetch 数据
+   * fetchOffset：fetch索引位置
+   * maxBytes：拉取数据
+   */
   private def readRecords(
     localLog: UnifiedLog,
     lastFetchedEpoch: Optional[Integer],
@@ -1540,6 +1547,7 @@ class Partition(val topicPartition: TopicPartition,
     val initialLogEndOffset = localLog.logEndOffset
     val initialLastStableOffset = localLog.lastStableOffset
 
+    // consumer 发出的fetchRequest，ifPresent = false
     lastFetchedEpoch.ifPresent { fetchEpoch =>
       val epochEndOffset = lastOffsetForLeaderEpoch(currentLeaderEpoch, fetchEpoch, fetchOnlyFromLeader = false)
       val error = Errors.forCode(epochEndOffset.errorCode)
@@ -1573,6 +1581,7 @@ class Partition(val topicPartition: TopicPartition,
       }
     }
 
+    // 真正fetch 数据的地方
     val fetchedData = localLog.read(
       fetchOffset,
       maxBytes,

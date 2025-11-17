@@ -207,7 +207,9 @@ public abstract class AbstractFetch implements Closeable {
                     }
                 }
                 /**
-                 * 每次fetch，每个partition fetch 到一个 requestData，封装成一个 completedFetch
+                 * 每次fetch，每个partition fetch 到一个 requestData，封装成一个 completedFetch;
+                 * 注意此处的CompletedFetch 的 nextFetchOffset 设置的是 request里的 fetchOffset
+                 * 实际上该 CompletedFetch 里可能包含更多的offset小于 fetchOffset 的records
                  */
                 CompletedFetch completedFetch = new CompletedFetch(
                         logContext,

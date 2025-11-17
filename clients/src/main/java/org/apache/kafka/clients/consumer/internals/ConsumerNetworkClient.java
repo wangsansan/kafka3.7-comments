@@ -264,6 +264,7 @@ public class ConsumerNetworkClient implements Closeable {
      */
     public void poll(Timer timer, PollCondition pollCondition, boolean disableWakeup) {
         // there may be handlers which need to be invoked if we woke up the previous call to poll
+        // 处理等待完成的请求
         firePendingCompletedRequests();
 
         lock.lock();

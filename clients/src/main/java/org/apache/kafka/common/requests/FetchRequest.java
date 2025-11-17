@@ -51,7 +51,9 @@ public class FetchRequest extends AbstractRequest {
     public static final int DEBUGGING_CONSUMER_ID = -2;
     public static final int FUTURE_LOCAL_REPLICA_ID = -3;
 
+    // consumer build fetch request的时候设置这个data属性
     private final FetchRequestData data;
+    // Server端处理 fetch request的时候，解析data，设置fetchData，具体逻辑见FetchRequest.fetchData方法
     private volatile LinkedHashMap<TopicIdPartition, PartitionData> fetchData = null;
     private volatile List<TopicIdPartition> toForget = null;
 
@@ -62,6 +64,10 @@ public class FetchRequest extends AbstractRequest {
         public final Uuid topicId;
         // fetch request 的位置，发起 fetch 请求时进行设置
         public final long fetchOffset;
+        /**
+         * partition的左边界，partition的右边界是LEO；
+         * LogStartOffset随着旧的Segment文件滚动删除而更新，因为Server端可以配置Segment保存策略，譬如保存多少天或者多大的文件
+        */
         public final long logStartOffset;
         public final int maxBytes;
         public final Optional<Integer> currentLeaderEpoch;
@@ -258,6 +264,7 @@ public class FetchRequest extends AbstractRequest {
             fetchRequestData.setMaxWaitMs(maxWait);
             fetchRequestData.setMinBytes(minBytes);
             fetchRequestData.setMaxBytes(maxBytes);
+            // 默认值是0
             fetchRequestData.setIsolationLevel(isolationLevel.id());
             fetchRequestData.setForgottenTopicsData(new ArrayList<>());
             if (version < 15) {
@@ -400,6 +407,7 @@ public class FetchRequest extends AbstractRequest {
     // For versions < 13, builds the partitionData map using only the FetchRequestData.
     // For versions 13+, builds the partitionData map using both the FetchRequestData and a mapping of topic IDs to names.
     public Map<TopicIdPartition, PartitionData> fetchData(Map<Uuid, String> topicNames) {
+        // 双重检查锁，设置fetchData
         if (fetchData == null) {
             synchronized (this) {
                 if (fetchData == null) {
@@ -419,9 +427,9 @@ public class FetchRequest extends AbstractRequest {
                                 fetchDataTmp.put(new TopicIdPartition(fetchTopic.topicId(), new TopicPartition(name, fetchPartition.partition())),
                                         new PartitionData(
                                                 fetchTopic.topicId(),
-                                                fetchPartition.fetchOffset(),
-                                                fetchPartition.logStartOffset(),
-                                                fetchPartition.partitionMaxBytes(),
+                                                fetchPartition.fetchOffset(),// offset，这个最重要
+                                                fetchPartition.logStartOffset(),//consumer时，写死了-1；follower时才有意义。 partition的左边界，partition的右边界是LEO；LogStartOffset随着旧的Segment文件滚动删除而更新，因为Server端可以配置Segment保存策略，譬如保存多少天或者多大的文件
+                                                fetchPartition.partitionMaxBytes(),// 最大拉取多大数据，consumer端默认是1MB
                                                 optionalEpoch(fetchPartition.currentLeaderEpoch()),
                                                 optionalEpoch(fetchPartition.lastFetchedEpoch())
                                         )
@@ -466,6 +474,7 @@ public class FetchRequest extends AbstractRequest {
     }
 
     public IsolationLevel isolationLevel() {
+        // data.isolationLevel() 默认是0，也就是 READ_UNCOMMITTED
         return IsolationLevel.forId(data.isolationLevel());
     }
 

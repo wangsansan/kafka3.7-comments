@@ -66,6 +66,7 @@ class LocalLog(@volatile private var _dir: File,
                @volatile private[log] var config: LogConfig,
                private[log] val segments: LogSegments,
                @volatile private[log] var recoveryPoint: Long,
+              // nextOffsetMetadata 当前 partition 的下一个可以写的offset
                @volatile private var nextOffsetMetadata: LogOffsetMetadata,
                private[log] val scheduler: Scheduler,
                private[log] val time: Time,
@@ -355,14 +356,20 @@ class LocalLog(@volatile private var _dir: File,
   def read(startOffset: Long,
            maxLength: Int,
            minOneMessage: Boolean,
-           maxOffsetMetadata: LogOffsetMetadata,
+           maxOffsetMetadata: LogOffsetMetadata, // consumer的非事务消息此时maxOffsetMetadata是高水位信息
            includeAbortedTxns: Boolean): FetchDataInfo = {
     maybeHandleIOException(s"Exception while reading from $topicPartition in dir ${dir.getParent}") {
       trace(s"Reading maximum $maxLength bytes at offset $startOffset from log with " +
         s"total length ${segments.sizeInBytes} bytes")
 
       val endOffsetMetadata = nextOffsetMetadata
+      // 最大只能读取到下一个消息能够写入的位置，我的理解就是LEO
       val endOffset = endOffsetMetadata.messageOffset
+
+      /**
+       * 根据fetch消息的offset，找到partition中最合适的 segment 文件，并不是使用二分法，
+       * 而是ConcurrentNavigableMap的floorEntry方法，是跳表实现的
+        */
       var segmentOpt = segments.floorSegment(startOffset)
 
       // return error on attempt to read beyond the log end offset
@@ -383,11 +390,18 @@ class LocalLog(@volatile private var _dir: File,
           val segment = segmentOpt.get
           val baseOffset = segment.baseOffset
 
+          /**
+           * 如果最大消息的 startOffset = floorSegment.baseOffset，那么本次最多只能 fetch 到 maxOffsetMetadata.relativePositionInSegment
+           * 否则该segment的所有消息都可能要被fetch
+           */
           val maxPosition =
           // Use the max offset position if it is on this segment; otherwise, the segment size is the limit.
             if (maxOffsetMetadata.segmentBaseOffset == segment.baseOffset) maxOffsetMetadata.relativePositionInSegment
             else segment.size
 
+          /**
+           * 根据startOffset，找到合适的batch，从该batch的起点fetch一定量的数据
+           */
           fetchDataInfo = segment.read(startOffset, maxLength, maxPosition, minOneMessage)
           if (fetchDataInfo != null) {
             if (includeAbortedTxns)

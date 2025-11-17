@@ -1665,6 +1665,7 @@ class ReplicaManager(val config: KafkaConfig,
                     responseCallback: Seq[(TopicIdPartition, FetchPartitionData)] => Unit): Unit = {
 
     // check if this fetch request can be satisfied right away
+    // 1. fetch到的message
     val logReadResults = readFromLog(params, fetchInfos, quota, readFromPurgatory = false)
     var bytesReadable: Long = 0
     var errorReadingData = false
@@ -1699,8 +1700,14 @@ class ReplicaManager(val config: KafkaConfig,
     //                        4) some error happens while reading data
     //                        5) we found a diverging epoch
     //                        6) has a preferred read replica
-    if (!remoteFetchInfo.isPresent && (params.maxWaitMs <= 0 || fetchInfos.isEmpty || bytesReadable >= params.minBytes || errorReadingData ||
-      hasDivergingEpoch || hasPreferredReadReplica)) {
+    if (!remoteFetchInfo.isPresent
+      && (params.maxWaitMs <= 0
+      || fetchInfos.isEmpty
+      || bytesReadable >= params.minBytes
+      || errorReadingData
+      || hasDivergingEpoch
+      || hasPreferredReadReplica)
+    ) {
       val fetchPartitionData = logReadResults.map { case (tp, result) =>
         val isReassignmentFetch = params.isFromFollower && isAddingReplica(tp.topicPartition, params.replicaId)
         tp -> result.toFetchPartitionData(isReassignmentFetch)
@@ -1770,11 +1777,13 @@ class ReplicaManager(val config: KafkaConfig,
       }
     }
 
+    // tp维度的fetch message
     def read(tp: TopicIdPartition, fetchInfo: PartitionData, limitBytes: Int, minOneMessage: Boolean): LogReadResult = {
       val offset = fetchInfo.fetchOffset
+      // AbstractFetch.prepareFetchRequests 方法里设置了 maxBytes = 1MB
       val partitionFetchSize = fetchInfo.maxBytes
       val followerLogStartOffset = fetchInfo.logStartOffset
-
+      // 所以默认情况下，adjustedMaxBytes 的取值 = fetchInfo.maxBytes 为1MB
       val adjustedMaxBytes = math.min(fetchInfo.maxBytes, limitBytes)
       var log: UnifiedLog = null
       var partition : Partition = null
@@ -1814,16 +1823,18 @@ class ReplicaManager(val config: KafkaConfig,
             preferredReadReplica = preferredReadReplica,
             exception = None)
         } else {
+          // 获取到partition对应的 unifiedLog 对象， 这个log对象好像没有任何作用
           log = partition.localLogWithEpochOrThrow(fetchInfo.currentLeaderEpoch, params.fetchOnlyLeader())
 
           // Try the read first, this tells us whether we need all of adjustedFetchSize for this partition
+          // 先拉取一些数据回来
           val readInfo: LogReadInfo = partition.fetchRecords(
             fetchParams = params,
             fetchPartitionData = fetchInfo,
             fetchTimeMs = fetchTimeMs,
             maxBytes = adjustedMaxBytes,
             minOneMessage = minOneMessage,
-            updateFetchState = !readFromPurgatory)
+            updateFetchState = !readFromPurgatory) // 非延迟情况下，readFromPurgatory = false， updateFetchState = true
 
           val fetchDataInfo = checkFetchDataInfo(partition, readInfo.fetchedData)
 
@@ -1875,7 +1886,9 @@ class ReplicaManager(val config: KafkaConfig,
 
     var limitBytes = params.maxBytes
     val result = new mutable.ArrayBuffer[(TopicIdPartition, LogReadResult)]
+    // 客户端只要版本高一点，minOneMessage = true
     var minOneMessage = !params.hardMaxBytesLimit
+    // 基于tp维度进行遍历
     readPartitionInfo.foreach { case (tp, fetchInfo) =>
       val readResult = read(tp, fetchInfo, limitBytes, minOneMessage)
       val recordBatchSize = readResult.info.records.sizeInBytes

@@ -409,6 +409,7 @@ class RequestChannel(val queueSize: Int,
     onComplete: Option[Send => Unit]
   ): Unit = {
     updateErrorMetrics(request.header.apiKey, response.errorCounts.asScala)
+    // 将msg封装成SendResponse放到了Processor的responseQueue里面，同时wakeup一下Processor的selector
     sendResponse(new RequestChannel.SendResponse(
       request,
       request.buildResponseSend(response),

@@ -847,6 +847,7 @@ class FetchManager(private val time: Time,
                   s"epoch ${session.epoch}: added ${partitionsToLogString(added)}, " +
                   s"updated ${partitionsToLogString(updated)}, " +
                   s"removed ${partitionsToLogString(removed)}")
+                // 增量数据fetch请求
                 new IncrementalFetchContext(time, reqMetadata, session, topicNames)
               }
             }

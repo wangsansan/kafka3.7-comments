@@ -937,7 +937,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
 
           // update the epoch cache with the epoch stamped onto the message by the leader
           validRecords.batches.forEach { batch =>
-            // kafka2到kafka3.7，batch.magic 都是 2
+            // kafka2到kafka3.7，batch.magic 魔数都是 2
             if (batch.magic >= RecordBatch.MAGIC_VALUE_V2) {
               maybeAssignEpochStartOffset(batch.partitionLeaderEpoch, batch.baseOffset)
             } else {
@@ -1337,9 +1337,10 @@ class UnifiedLog(@volatile var logStartOffset: Long,
     checkLogStartOffset(startOffset)
     val maxOffsetMetadata = isolation match {
       case FetchIsolation.LOG_END => localLog.logEndOffsetMetadata
-      case FetchIsolation.HIGH_WATERMARK => fetchHighWatermarkMetadata
+      case FetchIsolation.HIGH_WATERMARK => fetchHighWatermarkMetadata // consumer 的默认非事务消息
       case FetchIsolation.TXN_COMMITTED => fetchLastStableOffsetMetadata
     }
+    // 调用LocalLog的read方法
     localLog.read(startOffset, maxLength, minOneMessage, maxOffsetMetadata, isolation == FetchIsolation.TXN_COMMITTED)
   }
 

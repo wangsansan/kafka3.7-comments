@@ -107,7 +107,7 @@ public class Selector implements Selectable, AutoCloseable {
     private final Set<KafkaChannel> explicitlyMutedChannels;
     private boolean outOfMemory;
     private final List<NetworkSend> completedSends;
-    private final LinkedHashMap<String, NetworkReceive> completedReceives;
+    private final LinkedHashMap<String/*nodeId*/, NetworkReceive> completedReceives;
     // 服务端的该字段为空
     private final Set<SelectionKey> immediatelyConnectedKeys;
     private final Map<String, KafkaChannel> closingChannels;
@@ -540,7 +540,9 @@ public class Selector implements Selectable, AutoCloseable {
             try {
                 /* complete any connections that have finished their handshake (either normally or immediately) */
                 // 此处是处理握手事件
+                // isImmediatelyConnected = true的时候代表是本次操作刚刚进行的socket连接
                 if (isImmediatelyConnected || key.isConnectable()) {
+                    // 此处的 finishConnect 方法会让channel在Selector上注册读事件
                     if (channel.finishConnect()) {
                         this.connected.add(nodeId);
                         this.sensors.connectionCreated.record();

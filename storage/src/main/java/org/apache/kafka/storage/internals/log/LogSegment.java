@@ -410,7 +410,9 @@ public class LogSegment implements Closeable {
      *        message or null if no message meets this criteria.
      */
     LogOffsetPosition translateOffset(long offset, int startingFilePosition) throws IOException {
+        // 1. 根据offset查询offsetIndex，找到可以查找的物理位置
         OffsetPosition mapping = offsetIndex().lookup(offset);
+        // 2. 从mapping.position开始顺序查找
         return log.searchForOffsetWithSize(offset, Math.max(mapping.position, startingFilePosition));
     }
 
@@ -449,18 +451,27 @@ public class LogSegment implements Closeable {
     public FetchDataInfo read(long startOffset, int maxSize, long maxPosition, boolean minOneMessage) throws IOException {
         if (maxSize < 0)
             throw new IllegalArgumentException("Invalid max size " + maxSize + " for log read from segment " + log);
-
+        /**
+         * 此时遍历的是offset索引文件，所以要根据startOffset和offset.index里的数据，找到最合适的物理位置
+         * 根据物理位置，找到log文件里最合适的batch（startOffset在该batch里）
+          */
         LogOffsetPosition startOffsetAndSize = translateOffset(startOffset);
 
         // if the start position is already off the end of the log, return null
         if (startOffsetAndSize == null)
             return null;
-
+        // 这是某个batch 的 position
         int startPosition = startOffsetAndSize.position;
         LogOffsetMetadata offsetMetadata = new LogOffsetMetadata(startOffset, this.baseOffset, startPosition);
 
         int adjustedMaxSize = maxSize;
         if (minOneMessage)
+            /**
+             * 保证了至少拉取一个batch返回给当前方法的调用方
+             * 譬如当maxSize大于startOffsetAndSize.size时，后续的log.slice(startPosition, fetchSize)就会直接slice多个batch
+             * 不过起点一定是该batch的position
+             * 这样的话，下次consumer来fetch消息时，可以保证一定不是这个batch了
+             */
             adjustedMaxSize = Math.max(maxSize, startOffsetAndSize.size);
 
         // return a log segment but with zero size in the case below
@@ -469,7 +480,7 @@ public class LogSegment implements Closeable {
 
         // calculate the length of the message set to read based on whether or not they gave us a maxOffset
         int fetchSize = Math.min((int) (maxPosition - startPosition), adjustedMaxSize);
-
+        // 所以实际在slice的时候是根据 batch.position 开始的，而不是 startOffset，最终返回前才对消息进行过滤
         return new FetchDataInfo(offsetMetadata, log.slice(startPosition, fetchSize),
             adjustedMaxSize < startOffsetAndSize.size, Optional.empty());
     }

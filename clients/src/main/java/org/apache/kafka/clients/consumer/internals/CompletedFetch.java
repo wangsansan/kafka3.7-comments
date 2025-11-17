@@ -264,9 +264,11 @@ public class CompletedFetch {
                 Record record = records.next();
                 // skip any records out of range
                 /**
-                 * 此处做 大于等于 的判断，多数情况是恒成立的，
-                 * 当然这个判断更能保证当前consumer针对该partition的消费是递增有序的，难道是防止网络故障导致之前消费过的重复消费或者跳过的被pull回来么？
-                 * 因为partition内的records本身就是按照offset递增有序的，而nextFetchOffset默认等于该completedFetch的第一个record的offset
+                 * Server端是按照batch的start位置给返回的，所以fetch回来的record的offset可能是小于 nextFetchOffset 的
+                 * 参考AbstractFetch#handleFetchSuccess()中初始化completedFetch的逻辑，默认情况下，completedFetch的 nextFetchOffset 等于Request 的 fetchOffset
+                 * 所以该过滤起始是为了把多fetch回来的数据给过滤掉
+                 * 每次fetch回来的records其实一定是基于某个batch的position开始的records
+                 * 这么设计的原因可能是因为怕该逻辑放到服务端，服务端压力过大，分摊给各个consumer就还好
                   */
                 if (record.offset() >= nextFetchOffset) {
                     // we only do validation when the message should not be skipped.

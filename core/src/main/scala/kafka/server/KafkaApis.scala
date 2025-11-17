@@ -765,7 +765,11 @@ class KafkaApis(val requestChannel: RequestChannel,
         metadataCache.topicIdsToNames()
       else
         Collections.emptyMap[Uuid, String]()
-
+    /**
+     * 从AbstractFetch.prepareFetchRequests 方法中可以看到fetchRequest组装逻辑
+     * fetchData方法是将FetchRequest里封装的数据convert一下
+     * 主要包含TP维度的：offset，fetchSize，leaderEpoch
+     */
     val fetchData = fetchRequest.fetchData(topicNames)
     val forgottenTopics = fetchRequest.forgottenTopics(topicNames)
 
@@ -778,6 +782,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       topicNames)
 
     val erroneous = mutable.ArrayBuffer[(TopicIdPartition, FetchResponseData.PartitionData)]()
+    // 这个变量命名有点意思
     val interesting = mutable.ArrayBuffer[(TopicIdPartition, FetchRequest.PartitionData)]()
     if (fetchRequest.isFromFollower) {
       // The follower must have ClusterAction on ClusterResource in order to fetch partition data.
@@ -797,6 +802,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
     } else {
       // Regular Kafka consumers need READ permission on each partition they are fetching.
+      // tp维度的请求数据
       val partitionDatas = new mutable.ArrayBuffer[(TopicIdPartition, FetchRequest.PartitionData)]
       fetchContext.foreachPartition { (topicIdPartition, partitionData) =>
         if (topicIdPartition.topic == null)
@@ -848,6 +854,7 @@ class KafkaApis(val requestChannel: RequestChannel,
         // format version after a single message has been produced (the broker would return the message(s)
         // without down-conversion irrespective of the fetch version).
         val unconvertedRecords = FetchResponse.recordsOrFail(partitionData)
+        // kafka2到kafka3.7，magic value 魔数都是 2
         val downConvertMagic =
           logConfig.map(_.recordVersion.value).flatMap { magic =>
             if (magic > RecordBatch.MAGIC_VALUE_V0 && versionId <= 1)
@@ -894,7 +901,7 @@ class KafkaApis(val requestChannel: RequestChannel,
               .setLastStableOffset(partitionData.lastStableOffset)
               .setLogStartOffset(partitionData.logStartOffset)
               .setAbortedTransactions(partitionData.abortedTransactions)
-              .setRecords(unconvertedRecords)
+              .setRecords(unconvertedRecords) // fetch到的records
               .setPreferredReadReplica(partitionData.preferredReadReplica)
               .setDivergingEpoch(partitionData.divergingEpoch)
               .setCurrentLeader(partitionData.currentLeader())
@@ -902,6 +909,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
     }
 
+    // fetch message的回调方法
     // the callback for process a fetch response, invoked before throttling
     def processResponseCallback(responsePartitionData: Seq[(TopicIdPartition, FetchPartitionData)]): Unit = {
       val partitions = new util.LinkedHashMap[TopicIdPartition, FetchResponseData.PartitionData]
@@ -910,6 +918,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       responsePartitionData.foreach { case (tp, data) =>
         val abortedTransactions = data.abortedTransactions.orElse(null)
         val lastStableOffset: Long = data.lastStableOffset.orElse(FetchResponse.INVALID_LAST_STABLE_OFFSET)
+        // consumer请求时，isReassignmentFetch = false
         if (data.isReassignmentFetch) reassigningPartitions.add(tp)
         val partitionData = new FetchResponseData.PartitionData()
           .setPartitionIndex(tp.partition)
@@ -945,6 +954,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       def createResponse(throttleTimeMs: Int): FetchResponse = {
         // Down-convert messages for each partition if required
         val convertedData = new util.LinkedHashMap[TopicIdPartition, FetchResponseData.PartitionData]
+        // scala这种写法真的恶心，方法内部套方法，然后变量不传，内部方法直接读外部方法的变量
         unconvertedFetchResponse.data().responses().forEach { topicResponse =>
           topicResponse.partitions().forEach { unconvertedPartitionData =>
             val tp = new TopicIdPartition(topicResponse.topicId, new TopicPartition(topicResponse.topic, unconvertedPartitionData.partitionIndex()))
@@ -1027,6 +1037,8 @@ class KafkaApis(val requestChannel: RequestChannel,
             s"metadata=${unconvertedFetchResponse.sessionId}")
         }
 
+        // 将msg封装成SendResponse放到了Processor的responseQueue里面，同时wakeup一下Processor的selector
+        // selector被唤醒之后
         // Send the response immediately.
         requestChannel.sendResponse(request, createResponse(maxThrottleTimeMs), Some(updateConversionStats))
       }
@@ -1042,8 +1054,12 @@ class KafkaApis(val requestChannel: RequestChannel,
         Int.MaxValue
       else
         quotas.fetch.getMaxValueInQuotaWindow(request.session, clientId).toInt
-
+      /**
+       * FetchRequest里的默认值，从FetchConfig#FetchConfig(ConsumerConfig)查看
+       */
+      // fetchRequest.maxBytes默认是50MB，config.fetchMaxBytes默认是55MB
       val fetchMaxBytes = Math.min(Math.min(fetchRequest.maxBytes, config.fetchMaxBytes), maxQuotaWindowBytes)
+      // fetchRequest.minBytes默认是1字节
       val fetchMinBytes = Math.min(fetchRequest.minBytes, fetchMaxBytes)
 
       val clientMetadata: Optional[ClientMetadata] = if (versionId >= 11) {
@@ -1060,9 +1076,9 @@ class KafkaApis(val requestChannel: RequestChannel,
 
       val params = new FetchParams(
         versionId,
-        fetchRequest.replicaId,
-        fetchRequest.replicaEpoch,
-        fetchRequest.maxWait,
+        fetchRequest.replicaId,  // consumer时，是-1
+        fetchRequest.replicaEpoch, // consumer时，是-1
+        fetchRequest.maxWait,// 默认500ms
         fetchMinBytes,
         fetchMaxBytes,
         FetchIsolation.of(fetchRequest),

@@ -483,6 +483,8 @@ public abstract class AbstractIndex implements Closeable {
 
     /**
      * Lookup lower or upper bounds for the given target.
+     * 使用二分法从当前的index里找到小于等于target的最大offset，也就是slot（条目）
+     * 此时的二分法判断逻辑：是把indexEntry里的相对offset变为绝对offset，再和targetIndex进行比较
      */
     private int indexSlotRangeFor(ByteBuffer idx, long target, IndexSearchType searchEntity,
                                   SearchResultType searchResultType) {
