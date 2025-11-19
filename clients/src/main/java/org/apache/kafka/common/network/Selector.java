@@ -595,6 +595,7 @@ public class Selector implements Selectable, AutoCloseable {
                  * producer：有可能之前发送的消息的ack回来了，需要记录一下
                  * server：read 事件处理逻辑也走到这里了
                  * consumer: 当fetch到数据之后，对应的channel也会变成readable，所以可以获取到数据
+                 * follower：获取到FetchData
                  */
                 if (channel.ready()
                         && (key.isReadable() || channel.hasBytesBuffered())
@@ -704,7 +705,8 @@ public class Selector implements Selectable, AutoCloseable {
     private void attemptRead(KafkaChannel channel) throws IOException {
         String nodeId = channel.id();
         /**
-         * 从socketChannel读取数据，并把读取到的数据传输到kafkaChannel的 receive
+         * 从socketChannel读取数据，并把读取到的数据传输到 kafkaChannel 的 receive 属性上，
+         * 后续 channel.maybeCompleteReceive 会生成 NetworkReceive
           */
         long bytesReceived = channel.read();
         if (bytesReceived != 0) {
@@ -714,9 +716,12 @@ public class Selector implements Selectable, AutoCloseable {
             // 顺便把KafkaChannel上的 receive 置为null
             NetworkReceive receive = channel.maybeCompleteReceive();
             if (receive != null) {
-                // producer：将读取到的数据暂存一下（消息ack信息），用来后续判断之前发送的消息是否成功
-                // server：暂存的就是 producer和consumer 发过来的信息了
-                // consumer: fetch到的数据
+                /**
+                 * producer：将读取到的数据暂存一下（消息ack信息），用来后续判断之前发送的消息是否成功
+                 * server：暂存的就是 producer和consumer 发过来的信息了
+                 * consumer: fetch到的数据
+                 * follower：fetch到的数据
+                  */
                 addToCompletedReceives(channel, receive, currentTimeMs);
             }
         }

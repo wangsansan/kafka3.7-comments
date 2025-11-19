@@ -104,12 +104,16 @@ class ReplicaFetcherThread(name: String,
                                     fetchOffset: Long,
                                     partitionData: FetchData): Option[LogAppendInfo] = {
     val logTrace = isTraceEnabled
+    // 1. 获取partition
     val partition = replicaMgr.getPartitionOrException(topicPartition)
+    // 2. 获取partition的UnifiedLog
     val log = partition.localLogOrException
+    // 3. 把fetch到的数据convert成 memoryRecords
     val records = toMemoryRecords(FetchResponse.recordsOrFail(partitionData))
 
     maybeWarnIfOversizedRecords(records, topicPartition)
 
+    // 4. 判断 FetchRequest的offset 是不是等于partition(UnifiedLog)的LEO
     if (fetchOffset != log.logEndOffset)
       throw new IllegalStateException("Offset mismatch for partition %s: fetched offset = %d, log end offset = %d.".format(
         topicPartition, fetchOffset, log.logEndOffset))
@@ -119,21 +123,24 @@ class ReplicaFetcherThread(name: String,
         .format(log.logEndOffset, topicPartition, records.sizeInBytes, partitionData.highWatermark))
 
     // Append the leader's messages to the log
+    // 5. fetch到的数据append到本地的segment文件里
     val logAppendInfo = partition.appendRecordsToFollowerOrFutureReplica(records, isFuture = false)
 
     if (logTrace)
       trace("Follower has replica log end offset %d after appending %d bytes of messages for partition %s"
         .format(log.logEndOffset, records.sizeInBytes, topicPartition))
+    // 6. 获取leader LSO
     val leaderLogStartOffset = partitionData.logStartOffset
 
     // For the follower replica, we do not need to keep its segment base offset and physical position.
     // These values will be computed upon becoming leader or handling a preferred read replica fetch.
     var maybeUpdateHighWatermarkMessage = s"but did not update replica high watermark"
+    // 7. 根据leader的HW更新当前follower的HW
     log.maybeUpdateHighWatermark(partitionData.highWatermark).foreach { newHighWatermark =>
       maybeUpdateHighWatermarkMessage = s"and updated replica high watermark to $newHighWatermark"
       partitionsWithNewHighWatermark += topicPartition
     }
-
+    // 8. 根据leader的LSO更新当前follower的LSO
     log.maybeIncrementLogStartOffset(leaderLogStartOffset, LogStartOffsetIncrementReason.LeaderOffsetIncremented)
     if (logTrace)
       trace(s"Follower received high watermark ${partitionData.highWatermark} from the leader " +

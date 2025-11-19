@@ -115,6 +115,7 @@ abstract class AbstractFetcherThread(name: String,
 
   private def maybeFetch(): Unit = {
     val fetchRequestOpt = inLock(partitionMapLock) {
+      // build fetch request
       val ResultWithPartitions(fetchRequestOpt, partitionsWithError) = leader.buildFetch(partitionStates.partitionStateMap.asScala)
 
       handlePartitionsWithErrors(partitionsWithError, "maybeFetch")
@@ -128,6 +129,7 @@ abstract class AbstractFetcherThread(name: String,
     }
 
     fetchRequestOpt.foreach { case ReplicaFetch(sessionPartitions, fetchRequest) =>
+      // 处理fetchRequest
       processFetchRequest(sessionPartitions, fetchRequest)
     }
   }
@@ -314,6 +316,7 @@ abstract class AbstractFetcherThread(name: String,
 
     try {
       trace(s"Sending fetch request $fetchRequest")
+      // fetch data from leader
       responseData = leader.fetch(fetchRequest)
     } catch {
       case t: Throwable =>
@@ -335,7 +338,9 @@ abstract class AbstractFetcherThread(name: String,
             // In this case, we only want to process the fetch response if the partition state is ready for fetch and
             // the current offset is the same as the offset requested.
             val fetchPartitionData = sessionPartitions.get(topicPartition)
-            if (fetchPartitionData != null && fetchPartitionData.fetchOffset == currentFetchState.fetchOffset && currentFetchState.isReadyForFetch) {
+            if (fetchPartitionData != null
+                  && fetchPartitionData.fetchOffset == currentFetchState.fetchOffset
+                  && currentFetchState.isReadyForFetch) {
               Errors.forCode(partitionData.errorCode) match {
                 case Errors.NONE =>
                   try {
@@ -351,6 +356,7 @@ abstract class AbstractFetcherThread(name: String,
                         .setEndOffset(partitionData.divergingEpoch.endOffset)
                     } else {
                       // Once we hand off the partition data to the subclass, we can't mess with it any more in this thread
+                      // 正常情况下走这块儿逻辑
                       val logAppendInfoOpt = processPartitionData(
                         topicPartition,
                         currentFetchState.fetchOffset,
@@ -359,6 +365,7 @@ abstract class AbstractFetcherThread(name: String,
 
                       logAppendInfoOpt.foreach { logAppendInfo =>
                         val validBytes = logAppendInfo.validBytes
+                        // 更新nextOffset，作为下一次构建FetchRequest时使用
                         val nextOffset = if (validBytes > 0) logAppendInfo.lastOffset + 1 else currentFetchState.fetchOffset
                         val lag = Math.max(0L, partitionData.highWatermark - nextOffset)
                         fetcherLagStats.getAndMaybePut(topicPartition).lag = lag
@@ -368,8 +375,14 @@ abstract class AbstractFetcherThread(name: String,
                           val lastFetchedEpoch =
                             if (logAppendInfo.lastLeaderEpoch.isPresent) logAppendInfo.lastLeaderEpoch.asScala else currentFetchState.lastFetchedEpoch
                           // Update partitionStates only if there is no exception during processPartitionData
-                          val newFetchState = PartitionFetchState(currentFetchState.topicId, nextOffset, Some(lag),
-                            currentFetchState.currentLeaderEpoch, state = Fetching, lastFetchedEpoch)
+                          val newFetchState = PartitionFetchState(
+                            currentFetchState.topicId,
+                            nextOffset,
+                            Some(lag),
+                            currentFetchState.currentLeaderEpoch,
+                            state = Fetching,
+                            lastFetchedEpoch
+                          )
                           partitionStates.updateAndMoveToEnd(topicPartition, newFetchState)
                           if (validBytes > 0) fetcherStats.byteRate.mark(validBytes)
                         }

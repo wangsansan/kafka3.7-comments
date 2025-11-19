@@ -64,6 +64,7 @@ class RemoteLeaderEndPoint(logPrefix: String,
   private val maxWait = brokerConfig.replicaFetchWaitMaxMs
   private val minBytes = brokerConfig.replicaFetchMinBytes
   private val maxBytes = brokerConfig.replicaFetchResponseMaxBytes
+  // fetchSize默认也是1MB
   private val fetchSize = brokerConfig.replicaFetchMaxBytes
 
   override def isTruncationOnFetchSupported = metadataVersionSupplier().isTruncationOnFetchSupported
@@ -91,6 +92,7 @@ class RemoteLeaderEndPoint(logPrefix: String,
         Map.empty
       }
     } else {
+      // 不要被这个方法名迷惑，实际这个方法做的事情是将response里的responses解析并赋值给 responseData 字段
       fetchResponse.responseData(fetchSessionHandler.sessionTopicNames, clientResponse.requestHeader().apiVersion()).asScala
     }
   }
@@ -191,13 +193,16 @@ class RemoteLeaderEndPoint(logPrefix: String,
             fetchState.lastFetchedEpoch.map(_.asInstanceOf[Integer]).asJava
           else
             Optional.empty[Integer]
-          builder.add(topicPartition, new FetchRequest.PartitionData(
-            fetchState.topicId.getOrElse(Uuid.ZERO_UUID),
-            fetchState.fetchOffset,
-            logStartOffset,
-            fetchSize,
-            Optional.of(fetchState.currentLeaderEpoch),
-            lastFetchedEpoch))
+          builder.add(
+            topicPartition,
+            new FetchRequest.PartitionData(
+              fetchState.topicId.getOrElse(Uuid.ZERO_UUID), // topic
+              fetchState.fetchOffset, // fetchOffset
+              logStartOffset, // LSO
+              fetchSize, // fetchSize，默认1MB
+              Optional.of(fetchState.currentLeaderEpoch),
+              lastFetchedEpoch)
+          )
         } catch {
           case _: KafkaStorageException =>
             // The replica has already been marked offline due to log directory failure and the original failure should have already been logged.

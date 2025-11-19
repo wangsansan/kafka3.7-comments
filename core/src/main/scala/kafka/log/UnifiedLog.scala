@@ -189,6 +189,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
    * not eligible for deletion. This means that the active segment is only eligible for deletion if the high watermark
    * equals the log end offset (which may never happen for a partition under consistent load). This is needed to
    * prevent the log start offset (which is exposed in fetch responses) from getting ahead of the high watermark.
+   * 如果当前是follower，那么每次从leader fetch到数据之后，都会更新follower本地的highWatermarkMetadata， 使得和leader的highWatermarkMetadata相等
    */
   @volatile private var highWatermarkMetadata: LogOffsetMetadata = new LogOffsetMetadata(logStartOffset)
 
@@ -335,6 +336,9 @@ class UnifiedLog(@volatile var logStartOffset: Long,
    * @return the updated high watermark offset
    */
   def updateHighWatermark(highWatermarkMetadata: LogOffsetMetadata): Long = {
+    /**
+     * 确保 LSO <= HW <= LEO
+     */
     val endOffsetMetadata = localLog.logEndOffsetMetadata
     val newHighWatermarkMetadata = if (highWatermarkMetadata.messageOffset < logStartOffset) {
       new LogOffsetMetadata(logStartOffset)
@@ -579,6 +583,9 @@ class UnifiedLog(@volatile var logStartOffset: Long,
     leaderEpochCache = UnifiedLog.maybeCreateLeaderEpochCache(dir, topicPartition, logDirFailureChannel, recordVersion, logIdent)
   }
 
+  /**
+   *
+   */
   private def updateHighWatermarkWithLogEndOffset(): Unit = {
     // Update the high watermark in case it has gotten ahead of the log end offset following a truncation
     // or if a new segment has been rolled and the offset metadata needs to be updated.
@@ -776,7 +783,15 @@ class UnifiedLog(@volatile var logStartOffset: Long,
                      requestLocal: RequestLocal = RequestLocal.NoCaching,
                      verificationGuard: VerificationGuard = VerificationGuard.SENTINEL): LogAppendInfo = {
     val validateAndAssignOffsets = origin != AppendOrigin.RAFT_LEADER
-    append(records, origin, interBrokerProtocolVersion, validateAndAssignOffsets, leaderEpoch, Some(requestLocal), verificationGuard, ignoreRecordSize = false)
+    append(
+      records,
+      origin,
+      interBrokerProtocolVersion,
+      validateAndAssignOffsets,
+      leaderEpoch,
+      Some(requestLocal),
+      verificationGuard,
+      ignoreRecordSize = false)
   }
 
   /**
@@ -833,6 +848,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
      * - true：不要求batch是单调递增的：当 producer 发过来的消息，被 partition leader append的时候是true
      * - false：要求batch是单调递增的：当 appendAsFollower 的时候，是false
      * - 由于高版本的Kafka， batch只有一个，所以此处校验比较容易通过
+     * follower replica取值是false
      */
     val appendInfo = analyzeAndValidateRecords(records, origin, ignoreRecordSize, !validateAndAssignOffsets, leaderEpoch)
 
@@ -848,7 +864,11 @@ class UnifiedLog(@volatile var logStartOffset: Long,
       lock synchronized {
         maybeHandleIOException(s"Error while appending records to $topicPartition in dir ${dir.getParent}") {
           localLog.checkIfMemoryMappedBufferClosed()
-          // 当接收的是producer发过来的消息时，validateAndAssignOffsets = true
+
+          /**
+           * 当接收的是producer发过来的消息时，validateAndAssignOffsets = true
+           * follower replica对自己的segment日志进行append的时候，validateAndAssignOffsets = false
+            */
           if (validateAndAssignOffsets) {
             // assign offsets to the message set
             // 获取当前partition的LEO
@@ -917,6 +937,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
               }
             }
           } else {
+            // follower replica时， validateAndAssignOffsets是false
             // we are taking the offsets we are given
             if (appendInfo.firstOrLastOffsetOfFirstBatch < localLog.logEndOffset) {
               // we may still be able to recover if the log is empty
@@ -985,7 +1006,11 @@ class UnifiedLog(@volatile var logStartOffset: Long,
               // will be cleaned up after the log directory is recovered. Note that the end offset of the
               // ProducerStateManager will not be updated and the last stable offset will not advance
               // if the append to the transaction index fails.
-              // 写入record日志
+              /**
+               * 写入record日志，此时会同时更新LEO，不过对于follower来说，LEO没有太大作用，
+               * 正常情况下follower的partitionFetchState里的fetchOffset会设置的和LEO一样
+               * 都会设置成lastOffset + 1
+                */
               localLog.append(appendInfo.lastOffset, appendInfo.maxTimestamp, appendInfo.offsetOfMaxTimestamp, validRecords)
               // 又是判断，如果HW >= LEO，就更新HW
               updateHighWatermarkWithLogEndOffset()
@@ -1777,6 +1802,10 @@ class UnifiedLog(@volatile var logStartOffset: Long,
     // flush is done in the scheduler thread along with segment flushing below
     val maybeSnapshot = producerStateManager.takeSnapshot(false)
     // 此处的兜底判断，后续再看。目前不太清楚什么情况下 HW >= LEO
+    /**
+     * 如果follower曾经离线过，可能发生HW > LEO
+     * 如果leader被替换过，那么follower需要进行日志截断，也是会发生HW > LEO的情况
+     */
     updateHighWatermarkWithLogEndOffset()
     // Schedule an asynchronous flush of the old segment
     scheduler.scheduleOnce("flush-log", () => {

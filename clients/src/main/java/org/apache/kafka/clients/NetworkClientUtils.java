@@ -91,6 +91,7 @@ public final class NetworkClientUtils {
      */
     public static ClientResponse sendAndReceive(KafkaClient client, ClientRequest request, Time time) throws IOException {
         try {
+            // 1. 将 FetchRequest 给绑定到 networkClient -> selector -> KafkaChannel -> send 上
             client.send(request, time.milliseconds());
             while (client.active()) {
                 List<ClientResponse> responses = client.poll(Long.MAX_VALUE, time.milliseconds());
@@ -102,6 +103,7 @@ public final class NetworkClientUtils {
                         if (response.versionMismatch() != null) {
                             throw response.versionMismatch();
                         }
+                        // 只取第一个response，因为每次都是针对一个leader broker发的，理论上只会有一个response
                         return response;
                     }
                 }

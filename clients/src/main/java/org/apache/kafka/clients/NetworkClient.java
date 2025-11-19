@@ -524,7 +524,9 @@ public class NetworkClient implements KafkaClient {
             }
             // The call to build may also throw UnsupportedVersionException, if there are essential
             // fields that cannot be represented in the chosen version.
-            // 此处调用了requestBuilder.build()方法，构建了request
+            /**
+             * 此处调用了requestBuilder.build()方法，构建了request
+              */
             doSend(clientRequest, isInternalRequest, now, builder.build(version));
         } catch (UnsupportedVersionException unsupportedVersionException) {
             // If the version is not supported, skip sending the request over the wire.
@@ -615,7 +617,8 @@ public class NetworkClient implements KafkaClient {
         handleTimedOutRequests(responses, updatedNow);
         /**
          * producer：调用request的回调方法，主要就是消息的ack，执行发送消息producerBatch 的done方法
-         * consumer：调用request的回调方法，
+         * consumer：调用request的回调方法，将数据基于tp维度构建为 completedFetch
+         * follower：没有回调方法，直接返回responses
          */
         completeResponses(responses);
 
@@ -984,6 +987,7 @@ public class NetworkClient implements KafkaClient {
                 /**
                  * producer：走到此处，我们认为接收到的是消息发送的ack返回了，那么对应的request更新为 completed
                  * consumer: 收到的消息是fetch到的数据
+                 * follower：收到 fetchResponse
                   */
                 responses.add(req.completed(response, now));
             }

@@ -126,6 +126,9 @@ abstract class AbstractFetcherManager[T <: AbstractFetcherThread](val name: Stri
   def createFetcherThread(fetcherId: Int, sourceBroker: BrokerEndPoint): T
 
   def addFetcherForPartitions(partitionAndOffsets: Map[TopicPartition, InitialFetchState]): Unit = {
+    /**
+     * 将「同 Leader Broker + 同 Fetcher 线程 ID」的分区归为一组（后续用一个 Fetcher 线程处理，提高效率）
+     */
     lock synchronized {
       val partitionsPerFetcher = partitionAndOffsets.groupBy { case (topicPartition, brokerAndInitialFetchOffset) =>
         BrokerAndFetcherId(brokerAndInitialFetchOffset.leader, getFetcherId(topicPartition))

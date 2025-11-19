@@ -46,6 +46,7 @@ class ReplicaFetcherManager(brokerConfig: KafkaConfig,
     val fetchSessionHandler = new FetchSessionHandler(logContext, sourceBroker.id)
     val leader = new RemoteLeaderEndPoint(logContext.logPrefix, endpoint, fetchSessionHandler, brokerConfig,
       replicaManager, quotaManager, metadataVersionSupplier, brokerEpochSupplier)
+    // follower fetch的线程
     new ReplicaFetcherThread(threadName, leader, brokerConfig, failedPartitions, replicaManager,
       quotaManager, logContext.logPrefix, metadataVersionSupplier)
   }

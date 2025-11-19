@@ -688,7 +688,12 @@ class ReplicaManager(val config: KafkaConfig,
   }
 
   def getPartitionOrException(topicPartition: TopicPartition): Partition = {
-    // 判断当前server broker 是否能够处理该 tp，能处理，就直接返回 partition
+    /**
+     * 判断当前server broker 是否能够处理该 tp，能处理，就直接返回 partition
+     * 对于leader replica，就是判断producer发过来的partition消息，该partition的leader replica是不是在当前broker里
+     * 对于follower replica，fetch到partition数据以后，判断该partition是不是有副本在本broker
+     * 总而言之就是判断该 partition 是不是有replica在当前broker。对于服务端处理producer的消息，还需要额外判断该partition replica是不是leader
+      */
     getPartitionOrError(topicPartition) match {
       case Left(Errors.KAFKA_STORAGE_ERROR) =>
         throw new KafkaStorageException(s"Partition $topicPartition is in an offline log directory")
