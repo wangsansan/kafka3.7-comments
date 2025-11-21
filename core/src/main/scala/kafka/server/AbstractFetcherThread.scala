@@ -356,7 +356,7 @@ abstract class AbstractFetcherThread(name: String,
                         .setEndOffset(partitionData.divergingEpoch.endOffset)
                     } else {
                       // Once we hand off the partition data to the subclass, we can't mess with it any more in this thread
-                      // 正常情况下走这块儿逻辑
+                      // 正常情况下走这块儿逻辑，此时还没更新FetchState
                       val logAppendInfoOpt = processPartitionData(
                         topicPartition,
                         currentFetchState.fetchOffset,

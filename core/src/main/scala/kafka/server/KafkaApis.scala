@@ -909,7 +909,7 @@ class KafkaApis(val requestChannel: RequestChannel,
       }
     }
 
-    // fetch message的回调方法
+    // fetch message 的回调方法
     // the callback for process a fetch response, invoked before throttling
     def processResponseCallback(responsePartitionData: Seq[(TopicIdPartition, FetchPartitionData)]): Unit = {
       val partitions = new util.LinkedHashMap[TopicIdPartition, FetchResponseData.PartitionData]
@@ -1056,10 +1056,11 @@ class KafkaApis(val requestChannel: RequestChannel,
         quotas.fetch.getMaxValueInQuotaWindow(request.session, clientId).toInt
       /**
        * FetchRequest里的默认值，从FetchConfig#FetchConfig(ConsumerConfig)查看
+       * consumer : fetchRequest.maxBytes默认是50MB，config.fetchMaxBytes默认是55MB
+       * follower: fetchRequest.maxBytes默认是10MB，config.fetchMaxBytes默认是55MB
        */
-      // fetchRequest.maxBytes默认是50MB，config.fetchMaxBytes默认是55MB
       val fetchMaxBytes = Math.min(Math.min(fetchRequest.maxBytes, config.fetchMaxBytes), maxQuotaWindowBytes)
-      // fetchRequest.minBytes默认是1字节
+      // consumer&follower: fetchRequest.minBytes默认是1字节
       val fetchMinBytes = Math.min(fetchRequest.minBytes, fetchMaxBytes)
 
       val clientMetadata: Optional[ClientMetadata] = if (versionId >= 11) {

@@ -1670,7 +1670,9 @@ class ReplicaManager(val config: KafkaConfig,
                     responseCallback: Seq[(TopicIdPartition, FetchPartitionData)] => Unit): Unit = {
 
     // check if this fetch request can be satisfied right away
-    // 1. fetch到的message
+    /**
+     * fetch到的tp维度的message
+     */
     val logReadResults = readFromLog(params, fetchInfos, quota, readFromPurgatory = false)
     var bytesReadable: Long = 0
     var errorReadingData = false
@@ -1705,6 +1707,10 @@ class ReplicaManager(val config: KafkaConfig,
     //                        4) some error happens while reading data
     //                        5) we found a diverging epoch
     //                        6) has a preferred read replica
+    /**
+     * 这个判断条件，其实主要看有没有fetch到数据，
+     * 也就是 bytesReadable >= params.minBytes 是否成立
+     */
     if (!remoteFetchInfo.isPresent
       && (params.maxWaitMs <= 0
       || fetchInfos.isEmpty
@@ -1832,7 +1838,10 @@ class ReplicaManager(val config: KafkaConfig,
           log = partition.localLogWithEpochOrThrow(fetchInfo.currentLeaderEpoch, params.fetchOnlyLeader())
 
           // Try the read first, this tells us whether we need all of adjustedFetchSize for this partition
-          // 先拉取一些数据回来
+          /**
+           * 先拉取一些数据回来
+           * 如果此刻是follower过来fetch数据，还是考虑update leader的HW，同时检查producer的acks是否满足了，是否可以回应producer了
+            */
           val readInfo: LogReadInfo = partition.fetchRecords(
             fetchParams = params,
             fetchPartitionData = fetchInfo,
@@ -1843,7 +1852,8 @@ class ReplicaManager(val config: KafkaConfig,
 
           val fetchDataInfo = checkFetchDataInfo(partition, readInfo.fetchedData)
 
-          LogReadResult(info = fetchDataInfo,
+          LogReadResult(
+            info = fetchDataInfo,
             divergingEpoch = readInfo.divergingEpoch.asScala,
             highWatermark = readInfo.highWatermark,
             leaderLogStartOffset = readInfo.logStartOffset,

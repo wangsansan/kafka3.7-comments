@@ -1010,9 +1010,11 @@ class UnifiedLog(@volatile var logStartOffset: Long,
                * 写入record日志，此时会同时更新LEO，不过对于follower来说，LEO没有太大作用，
                * 正常情况下follower的partitionFetchState里的fetchOffset会设置的和LEO一样
                * 都会设置成lastOffset + 1
+               * partition和localLog（UnifiedLog）是一一对应的
                 */
               localLog.append(appendInfo.lastOffset, appendInfo.maxTimestamp, appendInfo.offsetOfMaxTimestamp, validRecords)
-              // 又是判断，如果HW >= LEO，就更新HW
+              // 又是判断，如果HW >= LEO，就更新HW。
+              // 应该不太可能触发，因为LEO刚更新，而HW是leader的，而leader的HW一定是小于等于replica之前的LEO的
               updateHighWatermarkWithLogEndOffset()
 
               // update the producer state

@@ -113,7 +113,7 @@ class ReplicaFetcherThread(name: String,
 
     maybeWarnIfOversizedRecords(records, topicPartition)
 
-    // 4. 判断 FetchRequest的offset 是不是等于partition(UnifiedLog)的LEO
+    // 4. 判断 FetchRequest的 offset 是不是等于partition(UnifiedLog)的LEO
     if (fetchOffset != log.logEndOffset)
       throw new IllegalStateException("Offset mismatch for partition %s: fetched offset = %d, log end offset = %d.".format(
         topicPartition, fetchOffset, log.logEndOffset))

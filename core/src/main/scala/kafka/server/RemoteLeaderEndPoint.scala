@@ -61,9 +61,9 @@ class RemoteLeaderEndPoint(logPrefix: String,
 
   this.logIdent = logPrefix
 
-  private val maxWait = brokerConfig.replicaFetchWaitMaxMs
-  private val minBytes = brokerConfig.replicaFetchMinBytes
-  private val maxBytes = brokerConfig.replicaFetchResponseMaxBytes
+  private val maxWait = brokerConfig.replicaFetchWaitMaxMs // 500ms
+  private val minBytes = brokerConfig.replicaFetchMinBytes //1 字节
+  private val maxBytes = brokerConfig.replicaFetchResponseMaxBytes // 10MB
   // fetchSize默认也是1MB
   private val fetchSize = brokerConfig.replicaFetchMaxBytes
 
@@ -92,7 +92,7 @@ class RemoteLeaderEndPoint(logPrefix: String,
         Map.empty
       }
     } else {
-      // 不要被这个方法名迷惑，实际这个方法做的事情是将response里的responses解析并赋值给 responseData 字段
+      // 不要被这个方法名迷惑，实际这个方法做的事情是将response里的responses解析并赋值给 responseData 字段， 同时返回给调用方
       fetchResponse.responseData(fetchSessionHandler.sessionTopicNames, clientResponse.requestHeader().apiVersion()).asScala
     }
   }

@@ -121,9 +121,10 @@ class Replica(val brokerId: Int, val topicPartition: TopicPartition, val metadat
             throw new NotLeaderOrFollowerException(s"Received stale fetch state update. broker epoch=$brokerEpoch " +
               s"vs expected=${cachedBrokerEpoch.get}")
           }
+        // zookeeper 走到此处
         case _ =>
       }
-
+      // 获取上次该follower caughtUp 的时间戳
       val lastCaughtUpTime = if (followerFetchOffsetMetadata.messageOffset >= leaderEndOffset) {
         math.max(currentReplicaState.lastCaughtUpTimeMs, followerFetchTimeMs)
       } else if (followerFetchOffsetMetadata.messageOffset >= currentReplicaState.lastFetchLeaderLogEndOffset) {
@@ -134,7 +135,7 @@ class Replica(val brokerId: Int, val topicPartition: TopicPartition, val metadat
 
       ReplicaState(
         logStartOffset = followerStartOffset,
-        logEndOffsetMetadata = followerFetchOffsetMetadata,
+        logEndOffsetMetadata = followerFetchOffsetMetadata,  // 里面的messageOffset是FetchRequest里的 messageOffset
         lastFetchLeaderLogEndOffset = math.max(leaderEndOffset, currentReplicaState.lastFetchLeaderLogEndOffset),
         lastFetchTimeMs = followerFetchTimeMs,
         lastCaughtUpTimeMs = lastCaughtUpTime,

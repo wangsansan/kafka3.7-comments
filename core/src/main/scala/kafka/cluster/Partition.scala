@@ -901,16 +901,18 @@ class Partition(val topicPartition: TopicPartition,
     followerFetchOffsetMetadata: LogOffsetMetadata,
     followerStartOffset: Long,
     followerFetchTimeMs: Long,
-    leaderEndOffset: Long,
+    leaderEndOffset: Long, // leader的LEO
     brokerEpoch: Long
   ): Unit = {
     // No need to calculate low watermark if there is no delayed DeleteRecordsRequest
     val oldLeaderLW = if (delayedOperations.numDelayedDelete > 0) lowWatermarkIfLeader else -1L
+    // leader replica 端保存的follower replica 信息
     val prevFollowerEndOffset = replica.stateSnapshot.logEndOffset
 
     // Apply read lock here to avoid the race between ISR updates and the fetch requests from rebooted follower. It
     // could break the broker epoch checks in the ISR expansion.
     inReadLock(leaderIsrUpdateLock) {
+      // 更新leader replica 处 follower replica 的信息
       replica.updateFetchStateOrThrow(
         followerFetchOffsetMetadata,
         followerStartOffset,
@@ -919,7 +921,7 @@ class Partition(val topicPartition: TopicPartition,
         brokerEpoch
       )
     }
-
+    // 再次计算下，该follower replica caughtUp 之后，leader 的 HW 值，为后续判断做准备
     val newLeaderLW = if (delayedOperations.numDelayedDelete > 0) lowWatermarkIfLeader else -1L
     // check if the LW of the partition has incremented
     // since the replica's logStartOffset may have incremented
@@ -928,6 +930,10 @@ class Partition(val topicPartition: TopicPartition,
     // Check if this in-sync replica needs to be added to the ISR.
     maybeExpandIsr(replica)
 
+    /**
+     * 上面的 updateFetchStateOrThrow 会更新 LEO 为 follower 本次 FetchRequest 传过来的 Offset
+     * 当follower replica 的LEO变了，我们就判断下当前leader replica的HW是否需要更新，因为HW = min(LEO)
+     */
     // check if the HW of the partition can now be incremented
     // since the replica may already be in the ISR and its LEO has just incremented
     val leaderHWIncremented = if (prevFollowerEndOffset != replica.stateSnapshot.logEndOffset) {
@@ -940,6 +946,7 @@ class Partition(val topicPartition: TopicPartition,
       false
     }
 
+    // 当HW或者LW发生了变化，producer才需要判断下是不是acks满足了，也就是如果HW或者LW没有发生变化，实际acks可能不会能完全满足，此处kafka就直接忽略掉acks的满足判断了
     // some delayed operations may be unblocked after HW or LW changed
     if (leaderLWIncremented || leaderHWIncremented)
       tryCompleteDelayedRequests()
@@ -1037,6 +1044,7 @@ class Partition(val topicPartition: TopicPartition,
       isReplicaIsrEligible(followerReplicaId)
   }
 
+  // 判断follower replica的LEO是不是 >= leader HW
   private def isFollowerInSync(followerReplica: Replica): Boolean = {
     leaderLogIfLocal.exists { leaderLog =>
       val followerEndOffset = followerReplica.stateSnapshot.logEndOffset
@@ -1045,7 +1053,7 @@ class Partition(val topicPartition: TopicPartition,
   }
 
   /**
-   * 判断该 follower replica 还是否参与决策
+   * 判断该 follower replica 还是否参与决策，是否加入到ISR里
    * 分为 kRaft 模式和 Zookeeper 模式，Zookeeper模式只需要判断节点是否存活着即可
    * @param followerReplicaId
    * @return
@@ -1157,7 +1165,7 @@ class Partition(val topicPartition: TopicPartition,
    * Note There is no need to acquire the leaderIsrUpdate lock here since all callers of this private API acquire that lock
    *
    * @return true if the HW was incremented, and false otherwise.
-   * 因为更新了LEO，所以才进入该逻辑，LEO的更新可能会触发HW的更新
+   * 因为更新了LEO（leader和follower的LEO更新都算），所以才进入该逻辑，LEO的更新可能会触发HW的更新
    */
   private def maybeIncrementLeaderHW(leaderLog: UnifiedLog, currentTimeMs: Long = time.milliseconds): Boolean = {
     /*
@@ -1179,7 +1187,7 @@ class Partition(val topicPartition: TopicPartition,
     remoteReplicasMap.values.foreach { replica =>
       val replicaState = replica.stateSnapshot
 
-      // 假设，我们的副本都是健康存活着的，那么 shouldWaitForReplicaToJoinIsr 大概率是 true
+      // 假设，我们replica本都是健康存活着的，那么 shouldWaitForReplicaToJoinIsr 大概率是 true
       def shouldWaitForReplicaToJoinIsr: Boolean = {
         /**
          * 1. 如果 该replica 距离上次同步小于 replicaLagTimeMaxMs（30s），也认为该replica caughtUp 了
@@ -1460,10 +1468,12 @@ class Partition(val topicPartition: TopicPartition,
     if (fetchParams.isFromFollower) {
       // Check that the request is from a valid replica before doing the read
       val (replica, logReadInfo) = inReadLock(leaderIsrUpdateLock) {
+        // 获取该 partition 的 leader 的 localLog
         val localLog = localLogWithEpochOrThrow(
           fetchPartitionData.currentLeaderEpoch,
           fetchParams.fetchOnlyLeader
         )
+        // leader replica 端保存的follower replica信息
         val replica = followerReplicaOrThrow(
           fetchParams.replicaId,
           fetchPartitionData
@@ -1472,10 +1482,16 @@ class Partition(val topicPartition: TopicPartition,
         (replica, logReadInfo)
       }
 
+      /**
+       * 如果是follower，fetch到消息之后，还需要
+       * 1. 触发检查 leader 更新HW 和 LW
+       * 2. 判断是否要加入到ISR
+       * 3. 触发检查 producer 的 acks 是否已满足
+       */
       if (updateFetchState && !logReadInfo.divergingEpoch.isPresent) {
         updateFollowerFetchState(
-          replica,
-          followerFetchOffsetMetadata = logReadInfo.fetchedData.fetchOffsetMetadata,
+          replica,  // leader replica处保存的follower replica 信息
+          followerFetchOffsetMetadata = logReadInfo.fetchedData.fetchOffsetMetadata, // 里面的messageOffset实际是FetchRequest的offset
           followerStartOffset = fetchPartitionData.logStartOffset,
           followerFetchTimeMs = fetchTimeMs,
           leaderEndOffset = logReadInfo.logEndOffset,
@@ -1527,7 +1543,7 @@ class Partition(val topicPartition: TopicPartition,
   }
 
   /**
-   * epoch就是为了判断下是否可以再从当前的leader里 fetch 数据
+   * epoch：就是为了判断下是否可以再从当前的leader里 fetch 数据
    * fetchOffset：fetch索引位置
    * maxBytes：拉取数据
    */

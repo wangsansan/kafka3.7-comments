@@ -462,6 +462,7 @@ public class LogSegment implements Closeable {
             return null;
         // 这是某个batch 的 position
         int startPosition = startOffsetAndSize.position;
+        // startOffset是FetchRequest的offset，baseOffset是当前segment的offset，startPosition是batch的startPosition offset
         LogOffsetMetadata offsetMetadata = new LogOffsetMetadata(startOffset, this.baseOffset, startPosition);
 
         int adjustedMaxSize = maxSize;
