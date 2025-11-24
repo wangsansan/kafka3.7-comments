@@ -516,7 +516,10 @@ class LocalLog(@volatile private var _dir: File,
         segments.lastSegment.ifPresent(_.onBecomeInactiveSegment())
       }
 
-      // 根据 newOffset，创建新的log和offset的index、timestamp的index，当然也有事务的index
+      /**
+       * 根据 newOffset，创建新的log和offset的index、timestamp的index，当然也有事务的index
+       * 创建了新的segment的log file，并创建了该file的fileChannel赋值给FileRecords，然后把FileRecords作为属性绑定到LogSegment上
+       */
       val newSegment = LogSegment.open(dir,
         newOffset,
         config,

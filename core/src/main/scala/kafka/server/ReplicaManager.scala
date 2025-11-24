@@ -1540,7 +1540,8 @@ class ReplicaManager(val config: KafkaConfig,
       trace(s"Append [$entriesPerPartition] to local log")
 
     // 注意此处，基于每个 partition，进行各自的 append 逻辑
-    entriesPerPartition.map { case (topicPartition, records) =>
+    entriesPerPartition.map {
+      case (topicPartition, records) =>
       brokerTopicStats.topicStats(topicPartition.topic).totalProduceRequestRate.mark()
       brokerTopicStats.allTopicsStats.totalProduceRequestRate.mark()
 
@@ -1840,7 +1841,10 @@ class ReplicaManager(val config: KafkaConfig,
           // Try the read first, this tells us whether we need all of adjustedFetchSize for this partition
           /**
            * 先拉取一些数据回来
-           * 如果此刻是follower过来fetch数据，还是考虑update leader的HW，同时检查producer的acks是否满足了，是否可以回应producer了
+           * 如果此刻是follower过来fetch数据，
+           * 还是考虑update leader的HW,
+           * leader的ISR是否发生变化，
+           * 同时检查producer的acks是否满足了，是否可以回应producer了
             */
           val readInfo: LogReadInfo = partition.fetchRecords(
             fetchParams = params,

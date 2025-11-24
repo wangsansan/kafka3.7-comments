@@ -375,11 +375,12 @@ class UnifiedLog(@volatile var logStartOffset: Long,
        * 1. 如果在同一个 segment，那么就判断 old的offset是否小于new的segment的offset
        * 2. 如果old的offset等于new的segment的offset，那就判断是否new的是一个新的segment
        *    2.1 譬如刚roll出来一个新的segment，所以新segment的offset的起点其实是等于旧segment的结尾点的
+       *        即使roll出来一个空的segment，也需要更新下HW信息
        */
       if (oldHighWatermark.messageOffset < newHighWatermark.messageOffset
           || (oldHighWatermark.messageOffset == newHighWatermark.messageOffset
               && oldHighWatermark.onOlderSegment(newHighWatermark))) {
-        // 更新高水位
+        // 更新高水位时，会同时更新segmentBaseOffset，所以如果roll出来一个新的空的segment，也要进行更新
         updateHighWatermarkMetadata(newHighWatermark)
         Some(oldHighWatermark)
       } else {
@@ -873,7 +874,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
             // assign offsets to the message set
             // 获取当前partition的LEO
             val offset = PrimitiveRef.ofLong(localLog.logEndOffset)
-            // 当前的LEO作为第一个写入位
+            // 当前的LEO作为offset
             appendInfo.setFirstOffset(offset.value)
             // 校验
             val validateAndOffsetAssignResult = try {
@@ -915,6 +916,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
             /**
              * 此时offset已经是更新过的，所以appendInfo的lastOffset-firstOffset + 1，就是本次写入的record的数量
              * offset.value - 1 = maxOffset；所以此时 lastOffset = offsetOfMaxTimestamp
+             *
              */
             appendInfo.setLastOffset(offset.value - 1)
             appendInfo.setRecordValidationStats(validateAndOffsetAssignResult.recordValidationStats)
@@ -983,6 +985,11 @@ class UnifiedLog(@volatile var logStartOffset: Long,
           // 获取可写入数据的 segment，roll出来的new segment 或者是 当前 segment
           val segment = maybeRoll(validRecords.sizeInBytes, appendInfo)
 
+          /**
+           * 保存了segment的baseOffset，segment的baseOffset其实也等于firstBatch的baseOffset
+           * producer：baseOffset其实是localLog的LEO
+           * follower append：也保存了接收过来的firstOffset：也就是firstBatch的baseOffset
+           */
           val logOffsetMetadata = new LogOffsetMetadata(
             appendInfo.firstOrLastOffsetOfFirstBatch,
             segment.baseOffset,
@@ -1011,10 +1018,14 @@ class UnifiedLog(@volatile var logStartOffset: Long,
                * 正常情况下follower的partitionFetchState里的fetchOffset会设置的和LEO一样
                * 都会设置成lastOffset + 1
                * partition和localLog（UnifiedLog）是一一对应的
+               * follower append：lastOffset是该tp的最后一个batch的lastOffset
+               * producer： lastOffset取值为LEO+records.size()
                 */
               localLog.append(appendInfo.lastOffset, appendInfo.maxTimestamp, appendInfo.offsetOfMaxTimestamp, validRecords)
               // 又是判断，如果HW >= LEO，就更新HW。
-              // 应该不太可能触发，因为LEO刚更新，而HW是leader的，而leader的HW一定是小于等于replica之前的LEO的
+              // 因为LEO刚更新，而HW是leader的，而leader的HW一定是小于等于replica之前的LEO的
+              // 也就是对于follower来说，如果本次fetch的时候，发现没有fetch到数据，且==leader的HW，那么就把follower本身的HW更新成LEO
+              // 换句话说，如果可以fetch到数据，应该就不会更新当前follower的HW
               updateHighWatermarkWithLogEndOffset()
 
               // update the producer state
@@ -1230,7 +1241,7 @@ class UnifiedLog(@volatile var logStartOffset: Long,
     var monotonic = true
     var maxTimestamp = RecordBatch.NO_TIMESTAMP
     var offsetOfMaxTimestamp = -1L
-    var readFirstMessage = false
+    var readFirstMessage = false  // 是否已经读取到了第一条message
     var lastOffsetOfFirstBatch = -1L
 
     /**
@@ -1805,8 +1816,8 @@ class UnifiedLog(@volatile var logStartOffset: Long,
     val maybeSnapshot = producerStateManager.takeSnapshot(false)
     // 此处的兜底判断，后续再看。目前不太清楚什么情况下 HW >= LEO
     /**
-     * 如果follower曾经离线过，可能发生HW > LEO
-     * 如果leader被替换过，那么follower需要进行日志截断，也是会发生HW > LEO的情况
+     * 如果follower曾经离线过，可能发生HW >= LEO
+     * 如果leader被替换过，那么follower需要进行日志截断，也是会发生HW >= LEO的情况
      */
     updateHighWatermarkWithLogEndOffset()
     // Schedule an asynchronous flush of the old segment

@@ -287,7 +287,7 @@ public class LogValidator {
                 maxTimestamp = maxBatchTimestamp;
                 offsetOfMaxTimestamp = offsetOfMaxBatchTimestamp;
             }
-
+            // 这个隐藏有点深，居然在此处更新batch的lastOffset，还好默认producer的每个tp只会发一个batch过来
             batch.setLastOffset(offsetCounter.value - 1);
 
             if (batch.magic() >= RecordBatch.MAGIC_VALUE_V2)

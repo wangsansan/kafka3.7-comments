@@ -921,13 +921,15 @@ class Partition(val topicPartition: TopicPartition,
         brokerEpoch
       )
     }
-    // 再次计算下，该follower replica caughtUp 之后，leader 的 HW 值，为后续判断做准备
+    // 再次计算下，该follower replica caughtUp 之后，leader 的 LW 值，为后续判断做准备
     val newLeaderLW = if (delayedOperations.numDelayedDelete > 0) lowWatermarkIfLeader else -1L
     // check if the LW of the partition has incremented
     // since the replica's logStartOffset may have incremented
     val leaderLWIncremented = newLeaderLW > oldLeaderLW
 
     // Check if this in-sync replica needs to be added to the ISR.
+    // 更新后的replica的LEO只要大于等于leader的HW，就放到isr里
+    // 更新后的replica的LEO其实是fetch request带过来的fetchOffset
     maybeExpandIsr(replica)
 
     /**
@@ -1044,7 +1046,7 @@ class Partition(val topicPartition: TopicPartition,
       isReplicaIsrEligible(followerReplicaId)
   }
 
-  // 判断follower replica的LEO是不是 >= leader HW
+  // 判断follower replica 的LEO是不是 >= leader HW
   private def isFollowerInSync(followerReplica: Replica): Boolean = {
     leaderLogIfLocal.exists { leaderLog =>
       val followerEndOffset = followerReplica.stateSnapshot.logEndOffset
@@ -1183,7 +1185,7 @@ class Partition(val topicPartition: TopicPartition,
     // 新HW默认为leader的LEO
     var newHighWatermark = leaderLogEndOffset
     // 获取当前partition的其他replica的 state快照，对比下大家的LEO，选出最小的LEO作为HW
-    // 不过我觉得leader的LEO应该都是比follower大的，所以此处leader的LEO增大，触发HW更新的概率应该很小
+    // 此处最大的发生可能情况是follower来fetch数据，修改了对应replicaState，触发leader判断HW是否需要更新
     remoteReplicasMap.values.foreach { replica =>
       val replicaState = replica.stateSnapshot
 

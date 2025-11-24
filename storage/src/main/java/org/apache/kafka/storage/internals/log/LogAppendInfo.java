@@ -209,6 +209,7 @@ public class LogAppendInfo {
      * For magic versions 2 and newer, this method will return first offset. For magic versions
      * older than 2, we use the last offset of the first batch as an approximation of the first
      * offset to avoid decompressing the data.
+     * 高版本的kafka魔数值都是>=2的，所以此处都是返回本次producer发过来的firstBatch的firstOffset
      */
     public long firstOrLastOffsetOfFirstBatch() {
         return firstOffset >= 0 ? firstOffset : lastOffsetOfFirstBatch;
