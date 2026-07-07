@@ -103,11 +103,16 @@ public class Selector implements Selectable, AutoCloseable {
 
     private final Logger log;
     private final java.nio.channels.Selector nioSelector;
-    private final Map<String, KafkaChannel> channels;
+    private final Map<String/*nodeId*/, KafkaChannel> channels;
     private final Set<KafkaChannel> explicitlyMutedChannels;
     private boolean outOfMemory;
     private final List<NetworkSend> completedSends;
-    private final LinkedHashMap<String/*nodeId*/, NetworkReceive> completedReceives;
+    /**
+     * 注意此处的completedReceives的key
+     * client端使用时，key是nodeId：保存的是一次poll操作服务端某个node发过来的数据
+     * server端使用时，key是channelId：保存的是一次poll操作某个channel发过来的数据
+     */
+    private final LinkedHashMap<String, NetworkReceive> completedReceives;
     // 服务端的该字段为空
     private final Set<SelectionKey> immediatelyConnectedKeys;
     private final Map<String, KafkaChannel> closingChannels;
